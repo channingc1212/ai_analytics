@@ -43,16 +43,16 @@ class DataAnalystAgent:
             When you encounter an error, explain what went wrong and suggest alternatives.
             
             When analyzing data:
-            1. Start by understanding the data structure
+            1. Start by understanding the data structure using the data_info tool
             2. Check for data quality issues
-            3. Suggest appropriate analysis methods
+            3. Use the exploratory_data_analysis tool for statistical analysis
             4. Explain your findings in simple terms
             5. Make recommendations based on the analysis
             
-            Note: When using tools, make sure to pass the data in the correct format:
-            - For basic information: use data_info tool with the data parameter
-            - For cleaning: use data_cleaning tool with data and cleaning parameters
-            - For analysis: use exploratory_data_analysis tool with data and analysis parameters"""
+            Available tools:
+            - data_info: Use this to get basic information about the dataset
+            - data_cleaning: Use this for handling missing values, duplicates, etc.
+            - exploratory_data_analysis: Use this for statistical analysis and visualizations"""
         )
         
         prompt = ChatPromptTemplate.from_messages([
@@ -91,28 +91,16 @@ class DataAnalystAgent:
             # Convert DataFrame to dictionary format for tool usage
             data_dict = self.df.to_dict('list')
             
-            # Create the input with the data included
-            tool_input = {
-                "input": query,
-                "tool_input": {"data": data_dict},  # Add data to tool input
-                "data_info": {"data": data_dict},  # For DataInfoTool
-                "data_cleaning": {  # For DataCleaningTool
-                    "data": data_dict,
-                    "standardize_names": False,
-                    "handle_missing": None,
-                    "remove_duplicates": False,
-                    "convert_dtypes": None,
-                    "handle_outliers": None
-                },
-                "exploratory_data_analysis": {  # For EDATool
-                    "data": data_dict,
-                    "basic_stats": True,
-                    "correlation": False,
-                    "plot_columns": None
-                }
+            # Create the tool inputs
+            tool_kwargs = {
+                "data": data_dict  # This will be available to all tools
             }
             
-            result = self.agent_executor.invoke(tool_input)
+            result = self.agent_executor.invoke({
+                "input": query,
+                "kwargs": tool_kwargs
+            })
+            
             return {"success": True, "result": result["output"]}
         except Exception as e:
             return {

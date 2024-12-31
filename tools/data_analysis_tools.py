@@ -21,28 +21,11 @@ class DataFrameInput(BaseModel):
     """Input for tools that require a DataFrame"""
     data: Dict[str, List[Any]] = Field(..., description="The data in dictionary format that will be converted to DataFrame")
 
-class CleaningConfig(BaseModel):
-    """Configuration for data cleaning"""
-    data: Dict[str, List[Any]] = Field(..., description="The data in dictionary format that will be converted to DataFrame")
-    standardize_names: bool = Field(False, description="Whether to standardize column names")
-    handle_missing: Optional[Dict[str, str]] = Field(None, description="Strategy for handling missing values")
-    remove_duplicates: bool = Field(False, description="Whether to remove duplicate rows")
-    convert_dtypes: Optional[Dict[str, str]] = Field(None, description="Column data type conversions")
-    handle_outliers: Optional[Dict[str, str]] = Field(None, description="Strategy for handling outliers")
-
-class AnalysisConfig(BaseModel):
-    """Configuration for data analysis"""
-    data: Dict[str, List[Any]] = Field(..., description="The data in dictionary format that will be converted to DataFrame")
-    basic_stats: bool = Field(True, description="Whether to include basic statistics")
-    correlation: bool = Field(False, description="Whether to include correlation analysis")
-    plot_columns: Optional[List[str]] = Field(None, description="Columns to generate plots for")
-
 class DataInfoTool(BaseTool):
     name: str = "data_info"
     description: str = "Get basic information about the dataset including data types and missing values"
-    args_schema: type[BaseModel] = DataFrameInput
     
-    def _run(self, data: Dict[str, List[Any]], **kwargs) -> str:
+    def _run(self, data: Dict[str, List[Any]]) -> str:
         df = pd.DataFrame(data)
         data_types = detect_data_types(df)
         missing_summary = get_missing_values_summary(df)
@@ -59,67 +42,68 @@ class DataInfoTool(BaseTool):
         
         return "\n".join(info)
     
-    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> str:
+    def _arun(self, data: Dict[str, List[Any]]) -> str:
         raise NotImplementedError("Async not implemented")
 
 class DataCleaningTool(BaseTool):
     name: str = "data_cleaning"
     description: str = "Clean the dataset by handling missing values, duplicates, and standardizing column names"
-    args_schema: type[BaseModel] = CleaningConfig
     
-    def _run(self, **kwargs) -> Dict[str, List[Any]]:
-        data = kwargs.get('data', {})
+    def _run(self, data: Dict[str, List[Any]], standardize_names: bool = False,
+             handle_missing: Optional[Dict[str, str]] = None,
+             remove_duplicates: bool = False,
+             convert_dtypes: Optional[Dict[str, str]] = None,
+             handle_outliers: Optional[Dict[str, str]] = None) -> Dict[str, List[Any]]:
         df = pd.DataFrame(data)
         
-        if kwargs.get('standardize_names', False):
+        if standardize_names:
             df = standardize_column_names(df)
             
-        if kwargs.get('handle_missing'):
-            df = handle_missing_values(df, kwargs['handle_missing'])
+        if handle_missing:
+            df = handle_missing_values(df, handle_missing)
             
-        if kwargs.get('remove_duplicates', False):
+        if remove_duplicates:
             df = remove_duplicates(df)
             
-        if kwargs.get('convert_dtypes'):
-            df = convert_dtypes(df, kwargs['convert_dtypes'])
+        if convert_dtypes:
+            df = convert_dtypes(df, convert_dtypes)
             
-        if kwargs.get('handle_outliers'):
-            for col, method in kwargs['handle_outliers'].items():
+        if handle_outliers:
+            for col, method in handle_outliers.items():
                 df = handle_outliers(df, col, method)
                 
         return df.to_dict('list')
     
-    def _arun(self, **kwargs) -> Dict[str, List[Any]]:
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, List[Any]]:
         raise NotImplementedError("Async not implemented")
 
 class EDATool(BaseTool):
     name: str = "exploratory_data_analysis"
     description: str = "Perform exploratory data analysis including statistical summaries and visualizations"
-    args_schema: type[BaseModel] = AnalysisConfig
     
-    def _run(self, **kwargs) -> Dict[str, Any]:
-        data = kwargs.get('data', {})
+    def _run(self, data: Dict[str, List[Any]], basic_stats: bool = True,
+             correlation: bool = False, plot_columns: Optional[List[str]] = None) -> Dict[str, Any]:
         df = pd.DataFrame(data)
         results = {}
         
         # Basic statistics
-        if kwargs.get('basic_stats', True):
+        if basic_stats:
             results['basic_stats'] = df.describe().to_dict()
             
         # Correlation analysis
-        if kwargs.get('correlation', False):
+        if correlation:
             results['correlation'] = get_correlation_matrix(df).to_dict()
             
         # Generate plots for specified columns
-        if kwargs.get('plot_columns'):
+        if plot_columns:
             results['plots'] = {}
-            for column in kwargs['plot_columns']:
+            for column in plot_columns:
                 if column in df.columns:
                     results['plots'][column] = generate_basic_plots(df, column)
                 
         return results
     
-    def _arun(self, **kwargs) -> Dict[str, Any]:
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
         raise NotImplementedError("Async not implemented")
 
 # Additional tools can be added here as needed 
