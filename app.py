@@ -19,6 +19,8 @@ if 'agent' not in st.session_state:
     )
 if 'df' not in st.session_state:
     st.session_state.df = None
+if 'error_count' not in st.session_state:
+    st.session_state.error_count = 0
 
 # Set page config
 st.set_page_config(
@@ -52,11 +54,15 @@ with st.sidebar:
             # Display basic information
             st.success(f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns")
             
+            # Show data preview in an expander
+            with st.expander("Data Preview"):
+                st.dataframe(df.head())
+            
             # Show suggested actions
             st.header("Suggested Actions")
             suggestions = st.session_state.agent.get_suggested_actions()
             for suggestion in suggestions:
-                if st.button(suggestion):
+                if st.button(suggestion, key=f"suggest_{suggestion}"):
                     st.session_state.messages.append({"role": "user", "content": suggestion})
             
         except Exception as e:
@@ -80,29 +86,39 @@ if prompt := st.chat_input("Ask me about your data..."):
         
         # Get AI response
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            with st.spinner("Analyzing your data..."):
                 response = st.session_state.agent.analyze(prompt)
                 
                 if response.get("success", False):
                     result = response["result"]
                     st.markdown(result)
                     st.session_state.messages.append({"role": "assistant", "content": result})
+                    st.session_state.error_count = 0  # Reset error count on success
                 else:
                     error_message = response.get("error", "An error occurred")
                     suggestion = response.get("suggestion", "")
                     st.error(f"{error_message}\n\n{suggestion}")
+                    st.session_state.error_count += 1
                     
                     # Add error handling buttons
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Try Again"):
-                            retry_response = st.session_state.agent.handle_error(
-                                {"original_query": prompt}
-                            )
-                            st.markdown(retry_response.get("result", "Still unable to process request"))
-                    with col2:
-                        if st.button("Modify Request"):
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": "Please rephrase your request or try a different approach."
-                            }) 
+                    if st.session_state.error_count < 3:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Try Again", key=f"retry_{st.session_state.error_count}"):
+                                retry_response = st.session_state.agent.handle_error(
+                                    {"original_query": prompt, "error": error_message}
+                                )
+                                if retry_response.get("success", False):
+                                    st.markdown(retry_response["result"])
+                                    st.session_state.messages.append({
+                                        "role": "assistant",
+                                        "content": retry_response["result"]
+                                    })
+                        with col2:
+                            if st.button("Modify Request", key=f"modify_{st.session_state.error_count}"):
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": "Please rephrase your request or try a different approach."
+                                })
+                    else:
+                        st.warning("Maximum retry attempts reached. Please try a different approach.") 

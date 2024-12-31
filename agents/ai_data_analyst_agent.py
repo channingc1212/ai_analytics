@@ -1,9 +1,10 @@
-from langchain.agents import AgentExecutor, LLMSingleActionAgent, AgentOutputParser
-from langchain_community.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import MessagesPlaceholder, HumanMessagePromptTemplate, ChatPromptTemplate
-from langchain.schema import SystemMessage, HumanMessage, AIMessage
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain.tools import BaseTool, Tool
+from langchain_core.prompts import MessagesPlaceholder, HumanMessagePromptTemplate, ChatPromptTemplate
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain.memory import ConversationBufferMemory
 from typing import List, Union, Dict, Any, Optional
 import pandas as pd
 from tools.data_analysis_tools import DataInfoTool, DataCleaningTool, EDATool
@@ -39,7 +40,14 @@ class DataAnalystAgent:
             You can perform various tasks like data exploration, cleaning, and basic analysis.
             Always explain your findings in a clear and concise way.
             If you're unsure about an operation, ask the user for confirmation.
-            When you encounter an error, explain what went wrong and suggest alternatives."""
+            When you encounter an error, explain what went wrong and suggest alternatives.
+            
+            When analyzing data:
+            1. Start by understanding the data structure
+            2. Check for data quality issues
+            3. Suggest appropriate analysis methods
+            4. Explain your findings in simple terms
+            5. Make recommendations based on the analysis"""
         )
         
         prompt = ChatPromptTemplate.from_messages([
@@ -49,8 +57,14 @@ class DataAnalystAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
+        agent = create_openai_functions_agent(
+            llm=self.llm,
+            prompt=prompt,
+            tools=self.tools
+        )
+
         return AgentExecutor.from_agent_and_tools(
-            agent=self._create_agent(prompt),
+            agent=agent,
             tools=self.tools,
             memory=self.memory,
             verbose=True,
@@ -58,12 +72,6 @@ class DataAnalystAgent:
             early_stopping_method="generate",
             handle_parsing_errors=True
         )
-
-    def _create_agent(self, prompt):
-        """Create the agent with the specified prompt"""
-        # Implementation details for agent creation
-        # This would include the logic for parsing tool inputs and outputs
-        pass
 
     def set_data(self, df: pd.DataFrame):
         """Set the dataframe for analysis"""
@@ -75,11 +83,10 @@ class DataAnalystAgent:
             return {"error": "No data has been loaded. Please upload a dataset first."}
 
         try:
-            result = self.agent_executor.run(
-                input=query,
-                df=self.df
+            result = self.agent_executor.invoke(
+                {"input": query, "df": self.df}
             )
-            return {"success": True, "result": result}
+            return {"success": True, "result": result["output"]}
         except Exception as e:
             return {
                 "success": False,
@@ -96,9 +103,16 @@ class DataAnalystAgent:
                 "suggestion": "Please try a different approach or rephrase your request."
             }
 
-        # Implement specific error handling logic here
-        # For example, adjusting parameters or trying alternative methods
-        return self.analyze(error.get("original_query", ""))
+        try:
+            # Try with a more explicit error handling approach
+            modified_query = f"Error occurred: {error.get('error', '')}. Trying again with: {error.get('original_query', '')}"
+            return self.analyze(modified_query)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "suggestion": "Please try a different approach."
+            }
 
     def get_suggested_actions(self) -> List[str]:
         """Get suggested actions based on the current state of the data"""
@@ -111,4 +125,6 @@ class DataAnalystAgent:
                 suggestions.append("Analyze numerical distributions")
             if len(self.df.select_dtypes(include=['object']).columns) > 0:
                 suggestions.append("Analyze categorical variables")
+            suggestions.append("Show basic data statistics")
+            suggestions.append("Generate data summary")
         return suggestions 
