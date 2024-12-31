@@ -23,6 +23,7 @@ class DataFrameInput(BaseModel):
 
 class CleaningConfig(BaseModel):
     """Configuration for data cleaning"""
+    data: Dict[str, List[Any]] = Field(..., description="The data in dictionary format that will be converted to DataFrame")
     standardize_names: bool = Field(False, description="Whether to standardize column names")
     handle_missing: Optional[Dict[str, str]] = Field(None, description="Strategy for handling missing values")
     remove_duplicates: bool = Field(False, description="Whether to remove duplicate rows")
@@ -31,6 +32,7 @@ class CleaningConfig(BaseModel):
 
 class AnalysisConfig(BaseModel):
     """Configuration for data analysis"""
+    data: Dict[str, List[Any]] = Field(..., description="The data in dictionary format that will be converted to DataFrame")
     basic_stats: bool = Field(True, description="Whether to include basic statistics")
     correlation: bool = Field(False, description="Whether to include correlation analysis")
     plot_columns: Optional[List[str]] = Field(None, description="Columns to generate plots for")
@@ -65,28 +67,32 @@ class DataCleaningTool(BaseTool):
     description: str = "Clean the dataset by handling missing values, duplicates, and standardizing column names"
     args_schema: type[BaseModel] = CleaningConfig
     
-    def _run(self, data: Dict[str, List[Any]], config: CleaningConfig) -> Dict[str, List[Any]]:
+    def _run(self, data: Dict[str, List[Any]], standardize_names: bool = False,
+             handle_missing: Optional[Dict[str, str]] = None,
+             remove_duplicates: bool = False,
+             convert_dtypes: Optional[Dict[str, str]] = None,
+             handle_outliers: Optional[Dict[str, str]] = None) -> Dict[str, List[Any]]:
         df = pd.DataFrame(data)
         
-        if config.standardize_names:
+        if standardize_names:
             df = standardize_column_names(df)
             
-        if config.handle_missing:
-            df = handle_missing_values(df, config.handle_missing)
+        if handle_missing:
+            df = handle_missing_values(df, handle_missing)
             
-        if config.remove_duplicates:
+        if remove_duplicates:
             df = remove_duplicates(df)
             
-        if config.convert_dtypes:
-            df = convert_dtypes(df, config.convert_dtypes)
+        if convert_dtypes:
+            df = convert_dtypes(df, convert_dtypes)
             
-        if config.handle_outliers:
-            for col, method in config.handle_outliers.items():
+        if handle_outliers:
+            for col, method in handle_outliers.items():
                 df = handle_outliers(df, col, method)
                 
         return df.to_dict('list')
     
-    def _arun(self, data: Dict[str, List[Any]], config: CleaningConfig) -> Dict[str, List[Any]]:
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, List[Any]]:
         raise NotImplementedError("Async not implemented")
 
 class EDATool(BaseTool):
@@ -94,28 +100,29 @@ class EDATool(BaseTool):
     description: str = "Perform exploratory data analysis including statistical summaries and visualizations"
     args_schema: type[BaseModel] = AnalysisConfig
     
-    def _run(self, data: Dict[str, List[Any]], config: AnalysisConfig) -> Dict[str, Any]:
+    def _run(self, data: Dict[str, List[Any]], basic_stats: bool = True,
+             correlation: bool = False, plot_columns: Optional[List[str]] = None) -> Dict[str, Any]:
         df = pd.DataFrame(data)
         results = {}
         
         # Basic statistics
-        if config.basic_stats:
+        if basic_stats:
             results['basic_stats'] = df.describe().to_dict()
             
         # Correlation analysis
-        if config.correlation:
+        if correlation:
             results['correlation'] = get_correlation_matrix(df).to_dict()
             
         # Generate plots for specified columns
-        if config.plot_columns:
+        if plot_columns:
             results['plots'] = {}
-            for column in config.plot_columns:
+            for column in plot_columns:
                 if column in df.columns:
                     results['plots'][column] = generate_basic_plots(df, column)
                 
         return results
     
-    def _arun(self, data: Dict[str, List[Any]], config: AnalysisConfig) -> Dict[str, Any]:
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
         raise NotImplementedError("Async not implemented")
 
 # Additional tools can be added here as needed 

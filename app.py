@@ -22,6 +22,54 @@ if 'df' not in st.session_state:
 if 'error_count' not in st.session_state:
     st.session_state.error_count = 0
 
+def process_query(query: str):
+    """Process a query and update the chat"""
+    if st.session_state.df is None:
+        st.error("Please upload a dataset first!")
+        return
+        
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": query})
+    
+    # Get AI response
+    with st.chat_message("assistant"):
+        with st.spinner("Analyzing your data..."):
+            response = st.session_state.agent.analyze(query)
+            
+            if response.get("success", False):
+                result = response["result"]
+                st.markdown(result)
+                st.session_state.messages.append({"role": "assistant", "content": result})
+                st.session_state.error_count = 0  # Reset error count on success
+            else:
+                error_message = response.get("error", "An error occurred")
+                suggestion = response.get("suggestion", "")
+                st.error(f"{error_message}\n\n{suggestion}")
+                st.session_state.error_count += 1
+                
+                # Add error handling buttons
+                if st.session_state.error_count < 3:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("Try Again", key=f"retry_{st.session_state.error_count}"):
+                            retry_response = st.session_state.agent.handle_error(
+                                {"original_query": query, "error": error_message}
+                            )
+                            if retry_response.get("success", False):
+                                st.markdown(retry_response["result"])
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": retry_response["result"]
+                                })
+                    with col2:
+                        if st.button("Modify Request", key=f"modify_{st.session_state.error_count}"):
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": "Please rephrase your request or try a different approach."
+                            })
+                else:
+                    st.warning("Maximum retry attempts reached. Please try a different approach.")
+
 # Set page config
 st.set_page_config(
     page_title="AI Data Analyst",
@@ -63,7 +111,7 @@ with st.sidebar:
             suggestions = st.session_state.agent.get_suggested_actions()
             for suggestion in suggestions:
                 if st.button(suggestion, key=f"suggest_{suggestion}"):
-                    st.session_state.messages.append({"role": "user", "content": suggestion})
+                    process_query(suggestion)  # Process suggestion like a chat input
             
         except Exception as e:
             st.error(f"Error reading the file: {str(e)}")
@@ -78,47 +126,4 @@ for message in st.session_state.messages:
 
 # Chat input
 if prompt := st.chat_input("Ask me about your data..."):
-    if st.session_state.df is None:
-        st.error("Please upload a dataset first!")
-    else:
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Get AI response
-        with st.chat_message("assistant"):
-            with st.spinner("Analyzing your data..."):
-                response = st.session_state.agent.analyze(prompt)
-                
-                if response.get("success", False):
-                    result = response["result"]
-                    st.markdown(result)
-                    st.session_state.messages.append({"role": "assistant", "content": result})
-                    st.session_state.error_count = 0  # Reset error count on success
-                else:
-                    error_message = response.get("error", "An error occurred")
-                    suggestion = response.get("suggestion", "")
-                    st.error(f"{error_message}\n\n{suggestion}")
-                    st.session_state.error_count += 1
-                    
-                    # Add error handling buttons
-                    if st.session_state.error_count < 3:
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button("Try Again", key=f"retry_{st.session_state.error_count}"):
-                                retry_response = st.session_state.agent.handle_error(
-                                    {"original_query": prompt, "error": error_message}
-                                )
-                                if retry_response.get("success", False):
-                                    st.markdown(retry_response["result"])
-                                    st.session_state.messages.append({
-                                        "role": "assistant",
-                                        "content": retry_response["result"]
-                                    })
-                        with col2:
-                            if st.button("Modify Request", key=f"modify_{st.session_state.error_count}"):
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": "Please rephrase your request or try a different approach."
-                                })
-                    else:
-                        st.warning("Maximum retry attempts reached. Please try a different approach.") 
+    process_query(prompt) 
