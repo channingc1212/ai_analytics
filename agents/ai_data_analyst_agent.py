@@ -49,8 +49,10 @@ class DataAnalystAgent:
             4. Explain your findings in simple terms
             5. Make recommendations based on the analysis
             
-            Note: When working with the data, you'll need to convert the DataFrame to a dictionary format using df.to_dict('list')
-            and back to DataFrame using pd.DataFrame(data) when needed."""
+            Note: When using tools, make sure to pass the data in the correct format:
+            - For basic information: use data_info tool with the data parameter
+            - For cleaning: use data_cleaning tool with data and cleaning parameters
+            - For analysis: use exploratory_data_analysis tool with data and analysis parameters"""
         )
         
         prompt = ChatPromptTemplate.from_messages([
@@ -88,12 +90,29 @@ class DataAnalystAgent:
         try:
             # Convert DataFrame to dictionary format for tool usage
             data_dict = self.df.to_dict('list')
-            result = self.agent_executor.invoke(
-                {
-                    "input": query,
-                    "data": data_dict
+            
+            # Create the input with the data included
+            tool_input = {
+                "input": query,
+                "tool_input": {"data": data_dict},  # Add data to tool input
+                "data_info": {"data": data_dict},  # For DataInfoTool
+                "data_cleaning": {  # For DataCleaningTool
+                    "data": data_dict,
+                    "standardize_names": False,
+                    "handle_missing": None,
+                    "remove_duplicates": False,
+                    "convert_dtypes": None,
+                    "handle_outliers": None
+                },
+                "exploratory_data_analysis": {  # For EDATool
+                    "data": data_dict,
+                    "basic_stats": True,
+                    "correlation": False,
+                    "plot_columns": None
                 }
-            )
+            }
+            
+            result = self.agent_executor.invoke(tool_input)
             return {"success": True, "result": result["output"]}
         except Exception as e:
             return {

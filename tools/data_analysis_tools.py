@@ -42,7 +42,7 @@ class DataInfoTool(BaseTool):
     description: str = "Get basic information about the dataset including data types and missing values"
     args_schema: type[BaseModel] = DataFrameInput
     
-    def _run(self, data: Dict[str, List[Any]]) -> str:
+    def _run(self, data: Dict[str, List[Any]], **kwargs) -> str:
         df = pd.DataFrame(data)
         data_types = detect_data_types(df)
         missing_summary = get_missing_values_summary(df)
@@ -59,7 +59,7 @@ class DataInfoTool(BaseTool):
         
         return "\n".join(info)
     
-    def _arun(self, data: Dict[str, List[Any]]) -> str:
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> str:
         raise NotImplementedError("Async not implemented")
 
 class DataCleaningTool(BaseTool):
@@ -67,32 +67,29 @@ class DataCleaningTool(BaseTool):
     description: str = "Clean the dataset by handling missing values, duplicates, and standardizing column names"
     args_schema: type[BaseModel] = CleaningConfig
     
-    def _run(self, data: Dict[str, List[Any]], standardize_names: bool = False,
-             handle_missing: Optional[Dict[str, str]] = None,
-             remove_duplicates: bool = False,
-             convert_dtypes: Optional[Dict[str, str]] = None,
-             handle_outliers: Optional[Dict[str, str]] = None) -> Dict[str, List[Any]]:
+    def _run(self, **kwargs) -> Dict[str, List[Any]]:
+        data = kwargs.get('data', {})
         df = pd.DataFrame(data)
         
-        if standardize_names:
+        if kwargs.get('standardize_names', False):
             df = standardize_column_names(df)
             
-        if handle_missing:
-            df = handle_missing_values(df, handle_missing)
+        if kwargs.get('handle_missing'):
+            df = handle_missing_values(df, kwargs['handle_missing'])
             
-        if remove_duplicates:
+        if kwargs.get('remove_duplicates', False):
             df = remove_duplicates(df)
             
-        if convert_dtypes:
-            df = convert_dtypes(df, convert_dtypes)
+        if kwargs.get('convert_dtypes'):
+            df = convert_dtypes(df, kwargs['convert_dtypes'])
             
-        if handle_outliers:
-            for col, method in handle_outliers.items():
+        if kwargs.get('handle_outliers'):
+            for col, method in kwargs['handle_outliers'].items():
                 df = handle_outliers(df, col, method)
                 
         return df.to_dict('list')
     
-    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, List[Any]]:
+    def _arun(self, **kwargs) -> Dict[str, List[Any]]:
         raise NotImplementedError("Async not implemented")
 
 class EDATool(BaseTool):
@@ -100,29 +97,29 @@ class EDATool(BaseTool):
     description: str = "Perform exploratory data analysis including statistical summaries and visualizations"
     args_schema: type[BaseModel] = AnalysisConfig
     
-    def _run(self, data: Dict[str, List[Any]], basic_stats: bool = True,
-             correlation: bool = False, plot_columns: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _run(self, **kwargs) -> Dict[str, Any]:
+        data = kwargs.get('data', {})
         df = pd.DataFrame(data)
         results = {}
         
         # Basic statistics
-        if basic_stats:
+        if kwargs.get('basic_stats', True):
             results['basic_stats'] = df.describe().to_dict()
             
         # Correlation analysis
-        if correlation:
+        if kwargs.get('correlation', False):
             results['correlation'] = get_correlation_matrix(df).to_dict()
             
         # Generate plots for specified columns
-        if plot_columns:
+        if kwargs.get('plot_columns'):
             results['plots'] = {}
-            for column in plot_columns:
+            for column in kwargs['plot_columns']:
                 if column in df.columns:
                     results['plots'][column] = generate_basic_plots(df, column)
                 
         return results
     
-    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
+    def _arun(self, **kwargs) -> Dict[str, Any]:
         raise NotImplementedError("Async not implemented")
 
 # Additional tools can be added here as needed 
