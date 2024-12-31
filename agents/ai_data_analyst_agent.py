@@ -21,16 +21,28 @@ class DataAnalystAgent:
             return_messages=True
         )
         self.max_retries = 3
+        self.df = None
         self.tools = self._setup_tools()
         self.agent_executor = self._setup_agent()
-        self.df = None
 
     def _setup_tools(self) -> List[BaseTool]:
         """Setup tools for the agent"""
+        def wrap_tool(tool: BaseTool) -> BaseTool:
+            """Wrap tool to include DataFrame data"""
+            original_run = tool._run
+            
+            def wrapped_run(*args, **kwargs):
+                if not args and 'data' not in kwargs and self.df is not None:
+                    kwargs['data'] = self.df.to_dict('list')
+                return original_run(*args, **kwargs)
+            
+            tool._run = wrapped_run
+            return tool
+
         return [
-            DataInfoTool(),
-            DataCleaningTool(),
-            EDATool()
+            wrap_tool(DataInfoTool()),
+            wrap_tool(DataCleaningTool()),
+            wrap_tool(EDATool())
         ]
 
     def _setup_agent(self) -> AgentExecutor:
@@ -88,19 +100,9 @@ class DataAnalystAgent:
             return {"error": "No data has been loaded. Please upload a dataset first."}
 
         try:
-            # Convert DataFrame to dictionary format for tool usage
-            data_dict = self.df.to_dict('list')
-            
-            # Create the tool inputs
-            tool_kwargs = {
-                "data": data_dict  # This will be available to all tools
-            }
-            
             result = self.agent_executor.invoke({
-                "input": query,
-                "kwargs": tool_kwargs
+                "input": query
             })
-            
             return {"success": True, "result": result["output"]}
         except Exception as e:
             return {
