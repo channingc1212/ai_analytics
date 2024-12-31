@@ -1,10 +1,10 @@
-from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent, AgentOutputParser
-from langchain.chat_models import ChatOpenAI
+from langchain.agents import AgentExecutor, LLMSingleActionAgent, AgentOutputParser
+from langchain_community.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import MessagesPlaceholder, HumanMessagePromptTemplate, ChatPromptTemplate
 from langchain.schema import SystemMessage, HumanMessage, AIMessage
-from langchain.tools import BaseTool
-from typing import List, Union, Dict, Any
+from langchain.tools import BaseTool, Tool
+from typing import List, Union, Dict, Any, Optional
 import pandas as pd
 from tools.data_analysis_tools import DataInfoTool, DataCleaningTool, EDATool
 

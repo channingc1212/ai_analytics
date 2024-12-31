@@ -1,5 +1,5 @@
 from langchain.tools import BaseTool
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import pandas as pd
 from utils.analysis_utils import (
     detect_data_types,
@@ -17,8 +17,8 @@ from utils.cleaning_utils import (
 )
 
 class DataInfoTool(BaseTool):
-    name = "data_info"
-    description = "Get basic information about the dataset including rows, columns, data types and missing values. Please interpret the meaning of the data based on the column names."
+    name: str = "data_info"
+    description: str = "Get basic information about the dataset including rows, columns, data types and missing values. Please interpret the meaning of the data based on the column names."
     
     def _run(self, df: pd.DataFrame) -> str:
         data_types = detect_data_types(df)
@@ -35,10 +35,13 @@ class DataInfoTool(BaseTool):
         ]
         
         return "\n".join(info)
+    
+    def _arun(self, df: pd.DataFrame) -> str:
+        raise NotImplementedError("Async not implemented")
 
 class DataCleaningTool(BaseTool):
-    name = "data_cleaning"
-    description = "Clean the dataset by handling missing values, duplicates, and standardizing column names. You should always check if there is any data issue after cleaning."
+    name: str = "data_cleaning"
+    description: str = "Clean the dataset by handling missing values, duplicates, and standardizing column names. You should always check if there is any data issue after cleaning."
     
     def _run(self, df: pd.DataFrame, cleaning_config: Dict[str, Any]) -> pd.DataFrame:
         # Apply cleaning steps based on configuration
@@ -59,10 +62,13 @@ class DataCleaningTool(BaseTool):
                 df = handle_outliers(df, col, method)
                 
         return df
+    
+    def _arun(self, df: pd.DataFrame, cleaning_config: Dict[str, Any]) -> pd.DataFrame:
+        raise NotImplementedError("Async not implemented")
 
 class EDATool(BaseTool):
-    name = "exploratory_data_analysis"
-    description = "Perform exploratory data analysis including statistical summaries and visualizations. You should also interpret the results based on the statistics and visualizations as insights summary to the user."
+    name: str = "exploratory_data_analysis"
+    description: str = "Perform exploratory data analysis including statistical summaries and visualizations. You should also interpret the results based on the statistics and visualizations as insights summary to the user."
     
     def _run(self, df: pd.DataFrame, analysis_config: Dict[str, Any]) -> Dict[str, Any]:
         results = {}
@@ -82,5 +88,8 @@ class EDATool(BaseTool):
                 results['plots'][column] = generate_basic_plots(df, column)
                 
         return results
+    
+    def _arun(self, df: pd.DataFrame, analysis_config: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError("Async not implemented")
 
 # Additional tools can be added here as needed 
