@@ -47,7 +47,10 @@ class DataAnalystAgent:
             2. Check for data quality issues
             3. Suggest appropriate analysis methods
             4. Explain your findings in simple terms
-            5. Make recommendations based on the analysis"""
+            5. Make recommendations based on the analysis
+            
+            Note: When working with the data, you'll need to convert the DataFrame to a dictionary format using df.to_dict('list')
+            and back to DataFrame using pd.DataFrame(data) when needed."""
         )
         
         prompt = ChatPromptTemplate.from_messages([
@@ -83,8 +86,13 @@ class DataAnalystAgent:
             return {"error": "No data has been loaded. Please upload a dataset first."}
 
         try:
+            # Convert DataFrame to dictionary format for tool usage
+            data_dict = self.df.to_dict('list')
             result = self.agent_executor.invoke(
-                {"input": query, "df": self.df}
+                {
+                    "input": query,
+                    "data": data_dict
+                }
             )
             return {"success": True, "result": result["output"]}
         except Exception as e:
