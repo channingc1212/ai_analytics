@@ -33,7 +33,10 @@ def generate_basic_plots(df: pd.DataFrame, column: str) -> Any:
     elif df[column].dtype in ['object', 'category']:
         value_counts = df[column].value_counts()
         fig = px.bar(x=value_counts.index, y=value_counts.values, 
-                    title=f'Distribution of {column}')
+                     title=f'Distribution of {column}')
+    elif pd.api.types.is_datetime64_any_dtype(df[column]):
+        # Create a time series plot
+        fig = px.line(df, x=column, y=df[column].index, title=f'Time Series of {column}')
     else:
         return None
     return fig
