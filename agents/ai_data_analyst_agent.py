@@ -1,14 +1,15 @@
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from langchain.tools import BaseTool, Tool
-from langchain_core.prompts import MessagesPlaceholder, HumanMessagePromptTemplate, ChatPromptTemplate
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain.memory import ConversationBufferMemory
-from typing import List, Union, Dict, Any, Optional
-import pandas as pd
-from tools.data_analysis_tools import DataInfoTool, DataCleaningTool, EDATool
+from langchain.agents import AgentExecutor, create_openai_functions_agent # provides tools to create and manage agents
+from langchain_openai import ChatOpenAI # provides tools to interact with OpenAI's API
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage # provides tools to create and manage messages
+from langchain.tools import BaseTool, Tool # provides framework for the agent to use tools
+from langchain_core.prompts import MessagesPlaceholder, HumanMessagePromptTemplate, ChatPromptTemplate # provides tools to create and manage prompts
+from langchain_core.chat_history import BaseChatMessageHistory # handles storage and retrieval of chat history
+from langchain.memory import ConversationBufferMemory # provides memory modules that allow agents to remember information across interactions.
+from typing import List, Union, Dict, Any, Optional # provides tools to create and manage types
+import pandas as pd # provides tools to create and manage dataframes
+from tools.data_analysis_tools import DataInfoTool, DataCleaningTool, EDATool # import the tools
 
+# This class is used to create an agent that can analyze data
 class DataAnalystAgent:
     def __init__(self, openai_api_key: str, model_name: str = "gpt-3.5-turbo", temperature: float = 0):
         self.llm = ChatOpenAI(
@@ -45,6 +46,7 @@ class DataAnalystAgent:
             wrap_tool(EDATool())
         ]
 
+# Agent configuration
     def _setup_agent(self) -> AgentExecutor:
         """Setup the agent with tools and memory"""
         system_message = SystemMessage(
@@ -55,10 +57,10 @@ class DataAnalystAgent:
             When you encounter an error, explain what went wrong and suggest alternatives.
             
             When analyzing data:
-            1. Start by understanding the data structure using the data_info tool
-            2. Check for data quality issues
-            3. Use the exploratory_data_analysis tool for statistical analysis
-            4. Explain your findings in simple terms
+            1. Start by understanding the data structure using the data_info tool, provide a summary of the data to the users
+            2. Check for data quality issues and inform users, for example, duplicates, missing values, etc.
+            3. Use the exploratory_data_analysis tool for statistical analysis and visualizations
+            4. Explain your findings from the data and visualizations in summarized and business-friendly form 
             5. Make recommendations based on the analysis
             
             Available tools:
@@ -67,6 +69,7 @@ class DataAnalystAgent:
             - exploratory_data_analysis: Use this for statistical analysis and visualizations"""
         )
         
+        # Create a prompt template that includes the system message, chat history, user input, and agent scratchpad
         prompt = ChatPromptTemplate.from_messages([
             system_message,
             MessagesPlaceholder(variable_name="chat_history"),
@@ -74,12 +77,14 @@ class DataAnalystAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
+        # Create an agent using the OpenAI functions agent
         agent = create_openai_functions_agent(
             llm=self.llm,
             prompt=prompt,
             tools=self.tools
         )
 
+        # Create an agent executor that uses the agent and tools, memory, verbose, max_iterations, early_stopping_method, and handle_parsing_errors
         return AgentExecutor.from_agent_and_tools(
             agent=agent,
             tools=self.tools,
