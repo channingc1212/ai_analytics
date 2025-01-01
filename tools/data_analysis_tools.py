@@ -23,9 +23,12 @@ class DataFrameInput(BaseModel):
 
 class DataInfoTool(BaseTool):
     name: str = "data_info"
-    description: str = "Get basic information about the dataset including data types and missing values"
+    description: str = "Get basic information about the dataset including data types, missing values, and their summaries. Example input: {'column1': [1, 2, None], 'column2': ['A', 'B', 'C']}"
     
     def _run(self, data: Dict[str, List[Any]]) -> str:
+        if not isinstance(data, dict) or not all(isinstance(v, list) for v in data.values()):
+            raise ValueError("Input data must be a dictionary with lists as values.")
+        
         df = pd.DataFrame(data)
         data_types = detect_data_types(df)
         missing_summary = get_missing_values_summary(df)
@@ -47,7 +50,7 @@ class DataInfoTool(BaseTool):
 
 class DataCleaningTool(BaseTool):
     name: str = "data_cleaning"
-    description: str = "Clean the dataset by handling missing values, duplicates, and standardizing column names"
+    description: str = "Clean the dataset by handling missing values, duplicates, outliers, and standardizing column names"
     
     def _run(self, data: Dict[str, List[Any]], standardize_names: bool = False,
              handle_missing: Optional[Dict[str, str]] = None,
@@ -79,7 +82,7 @@ class DataCleaningTool(BaseTool):
 
 class EDATool(BaseTool):
     name: str = "exploratory_data_analysis"
-    description: str = "Perform exploratory data analysis including statistical summaries and visualizations"
+    description: str = "Perform exploratory data analysis including statistical summaries, correlation analysis, and visualizations"
     
     def _run(self, data: Dict[str, List[Any]], basic_stats: bool = True,
              correlation: bool = False, plot_columns: Optional[List[str]] = None) -> Dict[str, Any]:
