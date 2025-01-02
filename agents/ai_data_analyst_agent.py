@@ -29,12 +29,20 @@ class DataAnalystAgent:
     def _setup_tools(self) -> List[BaseTool]:
         """Setup tools for the agent"""
         def wrap_tool(tool: BaseTool) -> BaseTool:
-            """Wrap tool to include DataFrame data"""
+            """Wrap tool to include DataFrame data and LLM"""
             original_run = tool._run
             
             def wrapped_run(*args, **kwargs):
+                # Add data if not provided
                 if not args and 'data' not in kwargs and self.df is not None:
                     kwargs['data'] = self.df.to_dict('list')
+                
+                # Only pass llm to tools that need it
+                if isinstance(tool, (DataInfoTool, EDATool)) and 'llm' not in kwargs:
+                    kwargs['llm'] = self.llm
+                elif not isinstance(tool, (DataInfoTool, EDATool)) and 'llm' in kwargs:
+                    del kwargs['llm']  # Remove llm from kwargs for other tools
+                    
                 return original_run(*args, **kwargs)
             
             tool._run = wrapped_run
@@ -53,20 +61,42 @@ class DataAnalystAgent:
             content="""You are an AI Data Analyst that helps users understand and analyze their data.
             You can perform various tasks like data exploration, cleaning, and basic analysis.
             Always explain your findings in a clear and concise way.
-            If you're unsure about an operation or user intention, please ask the user for confirmation, and do not proceed with the operation.
-            When you encounter an error, explain what went wrong and suggest alternatives.
+            
+            Tool Usage Guide:
+            1. Data Info Tool (data_info):
+               - Use for initial dataset understanding
+               - Get dataset purpose and structure
+               - Identify data types and quality issues
+               - Detect temporal columns automatically
+               Example queries: "Tell me about this dataset", "What kind of data do we have?"
+            
+            2. Data Cleaning Tool (data_cleaning):
+               - Handle missing values using strategies: mean, median, mode, or custom value
+               - Remove duplicate rows
+               - Standardize column names to snake_case
+               - Convert column types (int, float, str, datetime)
+               - Handle outliers by clipping or removing
+               Example queries: "Clean missing values", "Remove duplicates", "Convert date column"
+            
+            3. EDA Tool (exploratory_data_analysis):
+               - Generate basic statistics (count, mean, std, quartiles)
+               - Analyze correlations between numeric columns
+               - Create visualizations based on data type:
+                 * Numeric: histograms
+                 * Categorical: bar charts
+                 * Temporal: line plots
+               - Provide AI-powered insights about patterns and implications
+               Example queries: "Show basic statistics", "Analyze correlations", "Plot distributions"
             
             When analyzing data:
-            1. Start by understanding the data structure using the data_info tool, provide a summary of the data to the users
-            2. Check for data quality issues and inform users, for example, duplicates, missing values, etc.
-            3. Use the exploratory_data_analysis tool for statistical analysis and visualizations
-            4. Explain your findings from the data and visualizations in summarized and business-friendly form 
-            5. Make recommendations based on the analysis
+            1. Start with data_info to understand the dataset
+            2. Address any data quality issues using data_cleaning
+            3. Perform analysis with exploratory_data_analysis
+            4. Explain findings in business-friendly terms
+            5. Make actionable recommendations
             
-            Available tools:
-            - data_info: Use this to get basic information about the dataset
-            - data_cleaning: Use this for handling missing values, duplicates, etc.
-            - exploratory_data_analysis: Use this for statistical analysis and visualizations"""
+            If you're unsure about an operation or user intention, ask for confirmation.
+            When encountering errors, explain what went wrong and suggest alternatives."""
         )
         
         # Create a prompt template that includes the system message, chat history, user input, and agent scratchpad
@@ -108,7 +138,17 @@ class DataAnalystAgent:
             result = self.agent_executor.invoke({
                 "input": query
             })
-            return {"success": True, "result": result["output"]}
+            
+            # Process the output
+            output = result["output"]
+            if isinstance(output, dict):
+                return {
+                    "success": True,
+                    "result": output["text_summary"],
+                    "data_types": output.get("data_types"),
+                    "missing_values": output.get("missing_values")
+                }
+            return {"success": True, "result": output}
         except Exception as e:
             return {
                 "success": False,

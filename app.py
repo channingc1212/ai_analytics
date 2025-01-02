@@ -23,34 +23,72 @@ if 'df' not in st.session_state:
 if 'error_count' not in st.session_state:
     st.session_state.error_count = 0
 
+def display_visualizations(visualizations):
+    """Display plotly visualizations in streamlit"""
+    if not visualizations:
+        return
+    
+    # Display type distribution pie chart
+    if 'type_distribution' in visualizations:
+        st.plotly_chart(visualizations['type_distribution'], use_container_width=True)
+    
+    # Display missing values heatmap
+    if 'missing_heatmap' in visualizations:
+        st.plotly_chart(visualizations['missing_heatmap'], use_container_width=True)
+    
+    # Display numeric distributions
+    if 'numeric_distributions' in visualizations:
+        st.plotly_chart(visualizations['numeric_distributions'], use_container_width=True)
+    
+    # Display categorical distributions
+    if 'categorical_distributions' in visualizations:
+        for col, fig in visualizations['categorical_distributions'].items():
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Display temporal distributions
+    if 'temporal_distributions' in visualizations:
+        for col, fig in visualizations['temporal_distributions'].items():
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Display correlation heatmap
+    if 'correlation_heatmap' in visualizations:
+        st.plotly_chart(visualizations['correlation_heatmap'], use_container_width=True)
+
 def process_query(query: str):
-    """Process a query and manage the interaction with the AI Data Analyst agent"""
+    """Process a query and update the chat"""
     if st.session_state.df is None:
         st.error("Please upload a dataset first!")
         return
         
-    # Add or append the user message to the messages list
+    # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": query})
     
     # Get AI response
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing your data..."): # show a spinner while the agent is analyzing the data
-            response = st.session_state.agent.analyze(query) # call the agent's analyze method with the query
+        with st.spinner("Analyzing your data..."):
+            response = st.session_state.agent.analyze(query)
             
-            if response.get("success", False): # check if the response is successful
-                result = response["result"] # get the result from the response
-                st.markdown(result) # display the result as markdown
+            if response.get("success", False):
+                # Display text result
+                result = response["result"]
+                st.markdown(result)
                 st.session_state.messages.append({"role": "assistant", "content": result})
+                
+                # Display visualizations if available
+                if "visualizations" in response:
+                    with st.expander("📊 Data Visualizations", expanded=True):
+                        display_visualizations(response["visualizations"])
+                
                 st.session_state.error_count = 0  # Reset error count on success
             else:
-                error_message = response.get("error", "An error occurred") # get the error message from the response
-                suggestion = response.get("suggestion", "") # get the suggestion from the response
-                st.error(f"{error_message}\n\n{suggestion}") # display the error message and suggestion
-                st.session_state.error_count += 1 # increment the error count
+                error_message = response.get("error", "An error occurred")
+                suggestion = response.get("suggestion", "")
+                st.error(f"{error_message}\n\n{suggestion}")
+                st.session_state.error_count += 1
                 
                 # Add error handling buttons
-                if st.session_state.error_count < 3: # check if the error count is less than 3
-                    col1, col2 = st.columns(2) # create two columns for the buttons
+                if st.session_state.error_count < 3:
+                    col1, col2 = st.columns(2)
                     with col1:
                         if st.button("Try Again", key=f"retry_{st.session_state.error_count}"):
                             retry_response = st.session_state.agent.handle_error(
