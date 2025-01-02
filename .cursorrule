@@ -19,44 +19,100 @@ The project aims to provide automated data analysis and insights generation thro
 ├── app.py         # Main Streamlit application
 └── requirements.txt # Project dependencies
 
+# Monitoring and Observability
+- Use LangSmith for tracing and monitoring LLM interactions
+- Track key metrics:
+  * Token usage and costs
+  * Response latency
+  * Tool usage patterns
+  * Error rates and types
+- Set up feedback collection for:
+  * Analysis accuracy
+  * Response quality
+  * User satisfaction
+- Monitor system health:
+  * API rate limits
+  * Memory usage
+  * Processing times
+- Create custom tags for:
+  * Analysis types
+  * Data sizes
+  * User operations
+  * Error categories
+
 # Token Usage Guidelines
 - Limit data samples to 1000 rows for analysis
 - Use concise prompts for LLM interactions
 - Optimize data structures for token efficiency
 - Monitor and log token usage in debug mode
+- Track token usage with LangSmith:
+  * Per request costs
+  * Aggregated usage
+  * Usage patterns
+  * Cost optimization opportunities
 
 # Error Handling
 - Implement proper error handling for API calls
 - Provide user-friendly error messages
 - Include fallback options for failed operations
 - Log errors for debugging purposes
+- Use LangSmith for error tracking:
+  * Capture full error context
+  * Track error patterns
+  * Monitor error rates
+  * Set up alerts for critical issues
 
 # Testing Requirements
 - Write unit tests for utility functions
 - Include integration tests for tools
 - Test with various data types and sizes
 - Validate LLM responses for consistency
+- Use LangSmith for testing:
+  * Evaluate model outputs
+  * Compare different models
+  * Track test cases
+  * Monitor regression tests
 
 # Security Guidelines
 - Never expose API keys in code
 - Use environment variables for sensitive data
 - Validate user inputs
 - Handle data privacy concerns
+- Secure LangSmith setup:
+  * API key management
+  * Data retention policies
+  * Access controls
+  * PII handling
 
 # Documentation Requirements
 - Maintain clear README with setup instructions
 - Document API endpoints and parameters
 - Include usage examples
 - Keep inline comments relevant and helpful
+- Document monitoring setup:
+  * LangSmith configuration
+  * Metrics definitions
+  * Alert thresholds
+  * Debugging procedures
 
 # Performance Considerations
 - Optimize data processing for large datasets
 - Cache results when appropriate
 - Monitor memory usage
 - Implement pagination for large results
+- Track performance with LangSmith:
+  * Response times
+  * Resource usage
+  * Bottlenecks
+  * Optimization opportunities
 
 # Feature Guidelines
 - Focus on user-friendly data analysis
 - Provide clear insights and visualizations
 - Support common data formats
-- Include data cleaning capabilities 
+- Include data cleaning capabilities
+- Monitor feature usage:
+  * Popular analyses
+  * User patterns
+  * Feature effectiveness
+  * Areas for improvement 

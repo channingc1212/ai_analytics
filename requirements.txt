@@ -12,3 +12,5 @@ python-dotenv>=1.0.0 # for environment variables
 scikit-learn>=1.3.2 # for machine learning
 plotly>=5.18.0 # for visualization
 watchdog>=3.0.0 # for file monitoring
+langsmith
+tiktoken  # for token counting
