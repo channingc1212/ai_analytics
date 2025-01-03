@@ -10,22 +10,33 @@ import plotly.io as pio
 # Configure plotly to use a static renderer
 pio.templates.default = "plotly_white"
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Initialize session state, which is used to store the state of the app across user interactions
-if 'messages' not in st.session_state:
-    st.session_state.messages = [] # initialize with empty messages list
-if 'agent' not in st.session_state:
-    st.session_state.agent = DataAnalystAgent(
-        openai_api_key=os.getenv('OPENAI_API_KEY'),
-        model_name=os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo'),
-        temperature=float(os.getenv('TEMPERATURE', 0))
+def main():
+    st.set_page_config(
+        page_title="AI Data Analyst",
+        page_icon="📊",
+        layout="wide"
     )
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'error_count' not in st.session_state:
-    st.session_state.error_count = 0
+    
+    # Load environment variables
+    load_dotenv()
+    
+    # Initialize session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "error_count" not in st.session_state:
+        st.session_state.error_count = 0
+    if "agent" not in st.session_state:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            st.error("OpenAI API key not found. Please set it in your environment variables.")
+            return
+        st.session_state.agent = DataAnalystAgent(
+            openai_api_key=openai_api_key,
+            model_name=os.getenv("OPENAI_MODEL", "o1-mini"),
+            temperature=float(os.getenv("TEMPERATURE", 0))
+        )
+    if "df" not in st.session_state:
+        st.session_state.df = None
 
 def display_visualizations(visualizations):
     """Display plotly visualizations in streamlit"""
@@ -113,13 +124,6 @@ def process_query(query: str):
                 
                 if st.session_state.error_count >= 3:
                     st.warning("Multiple errors occurred. Please try rephrasing your request or check your data.")
-
-# Set page config, this is used to set the title, icon, and layout of the page
-st.set_page_config(
-    page_title="AI Data Analyst",
-    page_icon="📊",
-    layout="wide"
-)
 
 # Title and description
 st.title("🤖 AI Data Analyst")

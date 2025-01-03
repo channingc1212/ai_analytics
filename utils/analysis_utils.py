@@ -117,7 +117,7 @@ def infer_data_purpose_with_llm(df: pd.DataFrame, llm: Optional[ChatOpenAI] = No
     """Infer the likely purpose/domain of the dataset using LLM"""
     if llm is None:
         llm = ChatOpenAI(
-            model_name="gpt-3.5-turbo",
+            model_name="o1-mini",
             temperature=0
         )
     

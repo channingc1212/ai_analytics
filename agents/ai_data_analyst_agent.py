@@ -12,7 +12,14 @@ import re
 
 # This class is used to create an agent that can analyze data
 class DataAnalystAgent:
-    def __init__(self, openai_api_key: str, model_name: str = "gpt-3.5-turbo", temperature: float = 0):
+    def __init__(self, openai_api_key: str, model_name: str = "o1-mini", temperature: float = 0):
+        """Initialize the agent with specified model configuration
+        
+        Args:
+            openai_api_key: API key for OpenAI
+            model_name: Name of the model to use (default: o1-mini)
+            temperature: Temperature for model responses (default: 0)
+        """
         self.llm = ChatOpenAI(
             temperature=temperature,
             model_name=model_name,
@@ -20,7 +27,9 @@ class DataAnalystAgent:
         )
         self.memory = ConversationBufferMemory(
             memory_key="chat_history",
-            return_messages=True
+            return_messages=True,
+            input_key="input",
+            output_key="output"
         )
         self.max_retries = 3
         self.df = None
@@ -33,7 +42,8 @@ class DataAnalystAgent:
             self.monitoring = MonitoringConfig()
             self.llm = ChatOpenAI(
                 callbacks=self.monitoring.callback_manager,
-                temperature=0,
+                temperature=temperature,
+                model_name=model_name,
                 openai_api_key=openai_api_key
             )
         except ImportError:
