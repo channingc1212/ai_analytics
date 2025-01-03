@@ -17,7 +17,9 @@ class MonitoringConfig:
         """
         # Initialize LangSmith client
         self.client = Client()
-        self.project_name = f"{project_name}_{os.getenv('ENVIRONMENT', 'dev')}"
+        
+        # Use environment variable for project name if set, otherwise use default
+        self.project_name = os.getenv("LANGCHAIN_PROJECT", project_name)
         
         # Create tracer for the project
         self.tracer = LangChainTracer(
@@ -37,7 +39,7 @@ class MonitoringConfig:
             "operation": operation_type,
             "data_size": str(data_size),
             "timestamp": datetime.utcnow().isoformat(),
-            "environment": os.getenv("ENVIRONMENT", "dev")
+            "environment": os.getenv("ENVIRONMENT", "dev")  # Environment as a tag, not part of project name
         }
         
         if additional_tags:

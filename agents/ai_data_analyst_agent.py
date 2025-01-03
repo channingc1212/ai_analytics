@@ -120,6 +120,14 @@ class DataAnalystAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
 
+        # Initialize memory with correct input/output keys
+        self.memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            return_messages=True,
+            input_key="input",
+            output_key="output"
+        )
+
         # Create an agent using the OpenAI functions agent
         agent = create_openai_functions_agent(
             llm=self.llm,
@@ -127,7 +135,7 @@ class DataAnalystAgent:
             tools=self.tools
         )
 
-        # Create an agent executor that uses the agent and tools, memory, verbose, max_iterations, early_stopping_method, and handle_parsing_errors
+        # Create an agent executor with proper configuration
         return AgentExecutor.from_agent_and_tools(
             agent=agent,
             tools=self.tools,
@@ -135,7 +143,8 @@ class DataAnalystAgent:
             verbose=True,
             max_iterations=self.max_retries,
             early_stopping_method="generate",
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            return_intermediate_steps=True
         )
 
     def set_data(self, df: pd.DataFrame):
@@ -261,10 +270,13 @@ class DataAnalystAgent:
                     raise
             
             # For non-visualization queries, use the agent executor
-            result = self.agent_executor.invoke({
-                "input": query,
-                "kwargs": {"data": data_dict}
-            })
+            # Prepare the inputs properly for the agent
+            agent_inputs = {
+                "input": query,  # The main input key for the agent
+                "data": data_dict  # Additional data passed as a tool input
+            }
+            
+            result = self.agent_executor.invoke(agent_inputs)
             
             return {"success": True, "result": result["output"]}
             
