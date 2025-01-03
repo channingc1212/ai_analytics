@@ -105,127 +105,185 @@ class DataCleaningTool(BaseTool):
     def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, List[Any]]:
         raise NotImplementedError("Async not implemented")
 
-class EDATool(BaseTool):
-    name: str = "exploratory_data_analysis"
-    description: str = """Analyze and visualize data patterns. Use this tool when you need to:
-    - Create time series plots ('plot over time', 'trend', 'timeline')
-    - Show distributions ('histogram', 'distribution', 'plot')
-    - Analyze patterns ('chart', 'graph', 'visualization')
-    - Compare values ('compare', 'relationship')"""
+class VisualizationTool(BaseTool):
+    name: str = "create_visualization"
+    description: str = """Create data visualizations. Use this tool when explicitly asked to:
+    - Plot time series data ('plot over time', 'trend', 'timeline')
+    - Create histograms or distributions ('distribution', 'histogram')
+    - Generate bar charts ('bar chart', 'bar plot')
+    - Show correlations ('scatter plot', 'correlation plot')
+    - Compare categories ('compare', 'breakdown')"""
     
-    def _run(self, data: Dict[str, List[Any]], llm: Optional[Any] = None,
-             basic_stats: bool = False, correlation: bool = False, 
-             plot_columns: Optional[List[str]] = None,
-             analyze_categorical: bool = False,
-             time_column: Optional[str] = None,
-             value_column: Optional[str] = None,
-             plot_type: Optional[str] = None,
-             debug_tokens: bool = False) -> Dict[str, Any]:
-        """Run analysis and create visualizations
-        
-        Args:
-            data: Input data dictionary
-            llm: Optional LLM for insights
-            basic_stats: Whether to include basic statistics
-            correlation: Whether to analyze correlations
-            plot_columns: Columns to plot
-            analyze_categorical: Whether to analyze categorical variables
-            time_column: Column to use for time series x-axis
-            value_column: Column to plot on y-axis
-            plot_type: Type of plot to create ('line', 'bar', 'histogram', etc.)
-            debug_tokens: Whether to track token usage
-        """
+    def _run(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
         df = pd.DataFrame(data)
-        df_sample = sample_dataframe(df)
-        results = {}
-        insights = []
-
-        # Handle time series plotting
+        results = {'plots': {}}
+        
+        # Extract visualization parameters
+        columns = kwargs.get('columns', [])
+        plot_type = kwargs.get('plot_type', 'auto')
+        time_column = kwargs.get('time_column')
+        value_column = kwargs.get('value_column')
+        
+        # Time series plot
         if time_column and value_column:
             try:
-                # Convert time column to datetime if needed
-                if df[time_column].dtype != 'datetime64[ns]':
-                    df[time_column] = pd.to_datetime(df[time_column])
-                
-                # Create time series plot
-                plot = px.line(df, x=time_column, y=value_column,
-                             title=f'{value_column} over {time_column}')
-                results['plots'] = {
-                    'time_series': {
-                        'plot': plot,
-                        'type': 'line',
-                        'x': time_column,
-                        'y': value_column
-                    }
-                }
-                
-                if llm:
-                    # Get insights about the time series
-                    stats = df.groupby(time_column)[value_column].agg(['mean', 'min', 'max']).describe()
-                    trend_prompt = f"""Analyze this time series of {value_column}:
-                    Average value: {stats['mean']['mean']:.2f}
-                    Range: {stats['min']['min']:.2f} to {stats['max']['max']:.2f}
-                    Key patterns or trends?"""
-                    
-                    trend_insights = llm.invoke(trend_prompt).content
-                    insights.append(f"📈 Time Series Insights:\n{trend_insights}")
-                
+                df[time_column] = pd.to_datetime(df[time_column])
+                fig = px.line(df, x=time_column, y=value_column,
+                            title=f'{value_column} over {time_column}')
+                results['plots']['time_series'] = fig
             except Exception as e:
                 results['errors'] = f"Error creating time series plot: {str(e)}"
         
-        # Handle regular plotting
-        elif plot_columns:
-            results['plots'] = {}
-            for column in plot_columns[:3]:  # Limit to 3 columns
-                if column not in df.columns:
+        # Handle other plot types
+        elif columns:
+            for col in columns:
+                if col not in df.columns:
                     continue
                     
                 try:
-                    if plot_type == 'histogram' or df[column].dtype in ['int64', 'float64']:
-                        plot = px.histogram(df, x=column, title=f'Distribution of {column}')
-                    elif plot_type == 'bar' or df[column].dtype in ['object', 'category']:
-                        value_counts = df[column].value_counts()
-                        plot = px.bar(x=value_counts.index, y=value_counts.values,
-                                    title=f'Distribution of {column}')
+                    if plot_type == 'histogram' or df[col].dtype in ['int64', 'float64']:
+                        fig = px.histogram(df, x=col, title=f'Distribution of {col}')
+                    elif plot_type == 'bar' or df[col].dtype in ['object', 'category']:
+                        value_counts = df[col].value_counts()
+                        fig = px.bar(x=value_counts.index, y=value_counts.values,
+                                   title=f'Distribution of {col}')
+                    elif plot_type == 'box':
+                        fig = px.box(df, y=col, title=f'Box Plot of {col}')
                     else:
-                        plot = generate_basic_plots(df, column)
-                    
-                    results['plots'][column] = {
-                        'plot': plot,
-                        'type': plot_type or 'auto',
-                        'column': column
-                    }
-                    
-                    if llm:
-                        if df[column].dtype in ['int64', 'float64']:
-                            stats = df[column].describe()
-                            dist_prompt = f"""'{column}' distribution:
-                            Mean: {stats['mean']:.2f}, Std: {stats['std']:.2f}
-                            Range: {stats['min']:.2f} to {stats['max']:.2f}
-                            Key patterns?"""
-                            
-                            dist_insights = llm.invoke(dist_prompt).content
-                            insights.append(f"📊 {column}:\n{dist_insights}")
-                            
+                        fig = generate_basic_plots(df, col)
+                        
+                    results['plots'][col] = fig
                 except Exception as e:
                     results['errors'] = results.get('errors', {})
-                    results['errors'][column] = str(e)
+                    results['errors'][col] = str(e)
         
-        # Include other analyses if requested
-        if basic_stats or correlation or analyze_categorical:
-            analysis_results = super()._run(
-                data=data,
-                llm=llm,
-                basic_stats=basic_stats,
-                correlation=correlation,
-                analyze_categorical=analyze_categorical,
-                debug_tokens=debug_tokens
-            )
-            results.update(analysis_results)
+        return results
+    
+    def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
+        raise NotImplementedError("Async not implemented")
+
+class EDATool(BaseTool):
+    name: str = "exploratory_data_analysis"
+    description: str = """Analyze data patterns and create visualizations. Use this tool for:
+    - Basic statistics and summaries
+    - Correlation analysis
+    - Pattern detection
+    - Multiple visualizations
+    - Comprehensive data insights"""
+    
+    def _run(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:
+        df = pd.DataFrame(data)
+        results = {}
+        insights = []
         
-        if insights:
-            results['insights'] = "\n\n".join(insights)
+        # Basic statistics
+        if kwargs.get('basic_stats', True):
+            stats_df = df.describe()
+            results['basic_stats'] = stats_df.to_dict()
+            
+            if 'llm' in kwargs:
+                stats_prompt = f"""Analyze these statistical summaries and provide key insights:
+                {stats_df.to_string()}
+                
+                Focus on:
+                1. Notable patterns in the data
+                2. Unusual values or distributions
+                3. Key statistics that stand out
+                4. Potential business implications
+                
+                Be concise and specific."""
+                
+                stats_insights = kwargs['llm'].invoke(stats_prompt).content
+                insights.append("📊 Statistical Insights:\n" + stats_insights)
         
+        # Correlation analysis
+        if kwargs.get('correlation', False):
+            numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+            if len(numeric_cols) > 1:
+                corr_matrix = get_correlation_matrix(df[numeric_cols])
+                results['correlation'] = corr_matrix.to_dict()
+                
+                # Create correlation heatmap
+                fig = px.imshow(corr_matrix,
+                              title='Correlation Heatmap',
+                              labels=dict(color='Correlation'))
+                results['plots'] = results.get('plots', {})
+                results['plots']['correlation_heatmap'] = fig
+                
+                if 'llm' in kwargs and not corr_matrix.empty:
+                    significant_corrs = []
+                    for col1 in corr_matrix.columns:
+                        for col2 in corr_matrix.index:
+                            if col1 < col2:
+                                corr = corr_matrix.loc[col2, col1]
+                                if abs(corr) > 0.5:
+                                    significant_corrs.append(f"{col1} vs {col2}: {corr:.2f}")
+                    
+                    if significant_corrs:
+                        corr_prompt = f"""Analyze these significant correlations:
+                        {', '.join(significant_corrs)}
+                        
+                        Explain:
+                        1. What these correlations mean
+                        2. Which relationships are most interesting
+                        3. Potential business implications"""
+                        
+                        corr_insights = kwargs['llm'].invoke(corr_prompt).content
+                        insights.append("🔗 Correlation Insights:\n" + corr_insights)
+        
+        # Categorical analysis with visualizations
+        if kwargs.get('analyze_categorical', False):
+            categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+            if len(categorical_cols) > 0:
+                results['categorical_analysis'] = {}
+                results['plots'] = results.get('plots', {})
+                
+                for col in categorical_cols:
+                    value_counts = df[col].value_counts()
+                    fig = px.bar(x=value_counts.index[:10], y=value_counts.values[:10],
+                               title=f'Top 10 Categories in {col}')
+                    
+                    results['categorical_analysis'][col] = {
+                        'value_counts': value_counts.to_dict(),
+                        'unique_count': len(value_counts)
+                    }
+                    results['plots'][f'{col}_distribution'] = fig
+                    
+                    if 'llm' in kwargs:
+                        cat_prompt = f"""Analyze the distribution of {col}:
+                        Top categories: {', '.join(value_counts.index[:5])}
+                        Total unique categories: {len(value_counts)}
+                        
+                        Explain:
+                        1. Distribution patterns
+                        2. Dominant categories
+                        3. Business implications"""
+                        
+                        cat_insights = kwargs['llm'].invoke(cat_prompt).content
+                        insights.append(f"📊 Category Insights ({col}):\n" + cat_insights)
+        
+        # Numeric distributions with visualizations
+        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+        if len(numeric_cols) > 0:
+            results['plots'] = results.get('plots', {})
+            for col in numeric_cols:
+                fig = px.histogram(df, x=col,
+                                 title=f'Distribution of {col}',
+                                 marginal='box')  # Add box plot on the margin
+                results['plots'][f'{col}_distribution'] = fig
+        
+        # Time series detection and visualization
+        datetime_cols = df.select_dtypes(include=['datetime64']).columns
+        if len(datetime_cols) > 0:
+            results['plots'] = results.get('plots', {})
+            for time_col in datetime_cols:
+                # Find a numeric column to plot against time
+                for value_col in numeric_cols:
+                    fig = px.line(df, x=time_col, y=value_col,
+                                title=f'{value_col} over {time_col}')
+                    results['plots'][f'{value_col}_timeseries'] = fig
+        
+        results['insights'] = "\n\n".join(insights) if insights else None
         return results
     
     def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:

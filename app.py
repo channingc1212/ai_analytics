@@ -10,34 +10,6 @@ import plotly.io as pio
 # Configure plotly to use a static renderer
 pio.templates.default = "plotly_white"
 
-def main():
-    st.set_page_config(
-        page_title="AI Data Analyst",
-        page_icon="📊",
-        layout="wide"
-    )
-    
-    # Load environment variables
-    load_dotenv()
-    
-    # Initialize session state
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "error_count" not in st.session_state:
-        st.session_state.error_count = 0
-    if "agent" not in st.session_state:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            st.error("OpenAI API key not found. Please set it in your environment variables.")
-            return
-        st.session_state.agent = DataAnalystAgent(
-            openai_api_key=openai_api_key,
-            model_name=os.getenv("OPENAI_MODEL", "o1-mini"),
-            temperature=float(os.getenv("TEMPERATURE", 0))
-        )
-    if "df" not in st.session_state:
-        st.session_state.df = None
-
 def display_visualizations(visualizations):
     """Display plotly visualizations in streamlit"""
     if not visualizations:
@@ -125,59 +97,90 @@ def process_query(query: str):
                 if st.session_state.error_count >= 3:
                     st.warning("Multiple errors occurred. Please try rephrasing your request or check your data.")
 
-# Title and description
-st.title("🤖 AI Data Analyst")
-st.markdown("""
-This application helps you analyze your data using AI. You can:
-- Upload your data files
-- Get insights about your data structure
-- Clean and manipulate your data
-- Perform exploratory data analysis
-""")
-
-# Sidebar for file upload and data info
-with st.sidebar:
-    st.header("📁 Data Upload")
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+def main():
+    st.set_page_config(
+        page_title="AI Data Analyst",
+        page_icon="📊",
+        layout="wide"
+    )
     
-    if uploaded_file is not None:
-        try:
-            # Read the file
-            df = pd.read_csv(uploaded_file)
-            st.session_state.df = df
-            st.session_state.agent.set_data(df) # setting the dataframe to the agent
-            
-            # Display basic information
-            st.success(f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns")
-            
-            # Show data preview in an expander
-            with st.expander("Data Preview"):
-                st.dataframe(df.head())
-            
-            # Show suggested actions
-            st.header("💡 Suggested Actions")
-            suggestions = [
-                "Show basic statistics",
-                "Analyze missing values",
-                "Show data distribution",
-                "Find correlations",
-                "Generate data summary"
-            ]
-            for suggestion in suggestions:
-                if st.button(suggestion, key=f"suggest_{suggestion}"):
-                    process_query(suggestion)  # Process suggestion like a chat input
-            
-        except Exception as e:
-            st.error(f"Error reading the file: {str(e)}")
+    # Load environment variables
+    load_dotenv()
+    
+    # Initialize session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "error_count" not in st.session_state:
+        st.session_state.error_count = 0
+    if "agent" not in st.session_state:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            st.error("OpenAI API key not found. Please set it in your environment variables.")
+            return
+        st.session_state.agent = DataAnalystAgent(
+            openai_api_key=openai_api_key,
+            model_name=os.getenv("OPENAI_MODEL", "o1-mini"),
+            temperature=float(os.getenv("TEMPERATURE", 0))
+        )
+    if "df" not in st.session_state:
+        st.session_state.df = None
 
-# Main chat interface
-st.header("💬 Chat with your Data")
+    # Title and description
+    st.title("🤖 AI Data Analyst")
+    st.markdown("""
+    This application helps you analyze your data using AI. You can:
+    - Upload your data files
+    - Get insights about your data structure
+    - Clean and manipulate your data
+    - Perform exploratory data analysis
+    """)
 
-# Display chat messages
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    # Sidebar for file upload and data info
+    with st.sidebar:
+        st.header("📁 Data Upload")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+        
+        if uploaded_file is not None:
+            try:
+                # Read the file
+                df = pd.read_csv(uploaded_file)
+                st.session_state.df = df
+                st.session_state.agent.set_data(df)
+                
+                # Display basic information
+                st.success(f"Loaded dataset with {df.shape[0]} rows and {df.shape[1]} columns")
+                
+                # Show data preview in an expander
+                with st.expander("Data Preview"):
+                    st.dataframe(df.head())
+                
+                # Show suggested actions
+                st.header("💡 Suggested Actions")
+                suggestions = [
+                    "Show basic statistics",
+                    "Analyze missing values",
+                    "Show data distribution",
+                    "Find correlations",
+                    "Generate data summary"
+                ]
+                for suggestion in suggestions:
+                    if st.button(suggestion, key=f"suggest_{suggestion}"):
+                        process_query(suggestion)
+                
+            except Exception as e:
+                st.error(f"Error reading the file: {str(e)}")
 
-# Chat input
-if prompt := st.chat_input("Ask me about your data..."):
-    process_query(prompt) 
+    # Main chat interface
+    st.header("💬 Chat with your Data")
+
+    # Display chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Ask me about your data..."):
+        process_query(prompt)
+
+if __name__ == "__main__":
+    main() 
