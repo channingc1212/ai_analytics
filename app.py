@@ -5,6 +5,10 @@ from dotenv import load_dotenv
 import os
 import io
 from agents.ai_data_analyst_agent import DataAnalystAgent # import the agent, that will be used to analyze the data
+import plotly.io as pio
+
+# Configure plotly to use a static renderer
+pio.templates.default = "plotly_white"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -55,11 +59,7 @@ def display_visualizations(visualizations):
         st.plotly_chart(visualizations['correlation_heatmap'], use_container_width=True)
 
 def process_query(query: str):
-    """Process a query and update the chat"""
-    if st.session_state.df is None:
-        st.error("Please upload a dataset first!")
-        return
-        
+    """Process user query and display results"""
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": query})
     
@@ -69,45 +69,50 @@ def process_query(query: str):
             response = st.session_state.agent.analyze(query)
             
             if response.get("success", False):
-                # Display text result
                 result = response["result"]
-                st.markdown(result)
-                st.session_state.messages.append({"role": "assistant", "content": result})
                 
-                # Display visualizations if available
-                if "visualizations" in response:
-                    with st.expander("📊 Data Visualizations", expanded=True):
-                        display_visualizations(response["visualizations"])
+                # Handle different types of results
+                if isinstance(result, dict):
+                    # Display text summary if available
+                    if "text_summary" in result:
+                        st.markdown(result["text_summary"])
+                    
+                    # Display plots if available
+                    if "plots" in result:
+                        for plot_name, plot_data in result["plots"].items():
+                            if isinstance(plot_data, dict) and 'plot' in plot_data:
+                                st.plotly_chart(plot_data['plot'], use_container_width=True)
+                            elif hasattr(plot_data, 'update_layout'):  # It's a plotly figure
+                                st.plotly_chart(plot_data, use_container_width=True)
+                    
+                    # Display insights if available
+                    if "insights" in result:
+                        st.markdown("### 🔍 Insights")
+                        st.markdown(result["insights"])
+                    
+                    # Display any errors that occurred
+                    if "errors" in result:
+                        st.error("Some errors occurred during analysis:")
+                        if isinstance(result["errors"], dict):
+                            for k, v in result["errors"].items():
+                                st.error(f"{k}: {v}")
+                        else:
+                            st.error(result["errors"])
+                else:
+                    st.markdown(result)
                 
+                st.session_state.messages.append({"role": "assistant", "content": str(result)})
                 st.session_state.error_count = 0  # Reset error count on success
             else:
-                error_message = response.get("error", "An error occurred")
+                error_msg = response.get("error", "An unknown error occurred")
                 suggestion = response.get("suggestion", "")
-                st.error(f"{error_message}\n\n{suggestion}")
+                st.error(f"Error: {error_msg}")
+                if suggestion:
+                    st.info(suggestion)
                 st.session_state.error_count += 1
                 
-                # Add error handling buttons
-                if st.session_state.error_count < 3:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("Try Again", key=f"retry_{st.session_state.error_count}"):
-                            retry_response = st.session_state.agent.handle_error(
-                                {"original_query": query, "error": error_message}
-                            )
-                            if retry_response.get("success", False):
-                                st.markdown(retry_response["result"])
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": retry_response["result"]
-                                })
-                    with col2:
-                        if st.button("Modify Request", key=f"modify_{st.session_state.error_count}"):
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": "Please rephrase your request or try a different approach."
-                            })
-                else:
-                    st.warning("Maximum retry attempts reached. Please try a different approach.")
+                if st.session_state.error_count >= 3:
+                    st.warning("Multiple errors occurred. Please try rephrasing your request or check your data.")
 
 # Set page config, this is used to set the title, icon, and layout of the page
 st.set_page_config(
@@ -128,7 +133,7 @@ This application helps you analyze your data using AI. You can:
 
 # Sidebar for file upload and data info
 with st.sidebar:
-    st.header("Data Upload")
+    st.header("📁 Data Upload")
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
     
     if uploaded_file is not None:
@@ -146,8 +151,14 @@ with st.sidebar:
                 st.dataframe(df.head())
             
             # Show suggested actions
-            st.header("Suggested Actions")
-            suggestions = st.session_state.agent.get_suggested_actions()
+            st.header("💡 Suggested Actions")
+            suggestions = [
+                "Show basic statistics",
+                "Analyze missing values",
+                "Show data distribution",
+                "Find correlations",
+                "Generate data summary"
+            ]
             for suggestion in suggestions:
                 if st.button(suggestion, key=f"suggest_{suggestion}"):
                     process_query(suggestion)  # Process suggestion like a chat input
@@ -156,7 +167,7 @@ with st.sidebar:
             st.error(f"Error reading the file: {str(e)}")
 
 # Main chat interface
-st.header("Chat with AI Data Analyst")
+st.header("💬 Chat with your Data")
 
 # Display chat messages
 for message in st.session_state.messages:

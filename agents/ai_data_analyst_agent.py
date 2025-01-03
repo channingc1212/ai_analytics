@@ -8,6 +8,7 @@ from langchain.memory import ConversationBufferMemory # provides memory modules 
 from typing import List, Union, Dict, Any, Optional # provides tools to create and manage types
 import pandas as pd # provides tools to create and manage dataframes
 from tools.data_analysis_tools import DataInfoTool, DataCleaningTool, EDATool # import the tools
+import re
 
 # This class is used to create an agent that can analyze data
 class DataAnalystAgent:
@@ -25,6 +26,18 @@ class DataAnalystAgent:
         self.df = None
         self.tools = self._setup_tools()
         self.agent_executor = self._setup_agent()
+
+        # Initialize monitoring if available
+        try:
+            from utils.monitoring import MonitoringConfig
+            self.monitoring = MonitoringConfig()
+            self.llm = ChatOpenAI(
+                callbacks=self.monitoring.callback_manager,
+                temperature=0,
+                openai_api_key=openai_api_key
+            )
+        except ImportError:
+            self.monitoring = None
 
     def _setup_tools(self) -> List[BaseTool]:
         """Setup tools for the agent"""
@@ -129,27 +142,140 @@ class DataAnalystAgent:
         """Set the dataframe for analysis"""
         self.df = df
 
+    def _detect_visualization_intent(self, query: str) -> Optional[Dict[str, Any]]:
+        """Detect if the query is asking for visualization and extract relevant details
+        
+        Args:
+            query: User's query string
+        
+        Returns:
+            Dictionary with visualization parameters if visualization intent detected,
+            None otherwise
+        """
+        # Common patterns for visualization requests
+        time_patterns = [
+            r'over time', r'trend', r'timeline', r'time series',
+            r'historical', r'evolution', r'changes'
+        ]
+        plot_patterns = [
+            r'plot', r'graph', r'chart', r'visualize', r'show',
+            r'display', r'draw', r'create'
+        ]
+        
+        # Check if query contains visualization intent
+        has_plot_intent = any(re.search(pattern, query.lower()) for pattern in plot_patterns)
+        has_time_intent = any(re.search(pattern, query.lower()) for pattern in time_patterns)
+        
+        if not has_plot_intent:
+            return None
+            
+        # Use LLM to extract visualization parameters
+        extract_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a data visualization expert. Extract visualization parameters from the query.
+            Return a JSON with these fields:
+            - time_column: Column to use for x-axis if time series (null if not applicable)
+            - value_column: Column to plot on y-axis
+            - plot_type: Type of plot to create (line, bar, histogram, scatter)
+            - plot_columns: List of columns to include in the plot
+            
+            Available columns: {columns}"""),
+            ("user", "{query}")
+        ])
+        
+        response = self.llm.invoke(
+            extract_prompt.format_messages(
+                columns=list(self.df.columns),
+                query=query
+            )
+        )
+        
+        try:
+            import json
+            params = json.loads(response.content)
+            
+            # Add default plot type for time series
+            if has_time_intent and params.get('time_column'):
+                params['plot_type'] = params.get('plot_type', 'line')
+            
+            return params
+            
+        except Exception as e:
+            if self.monitoring:
+                self.monitoring.log_error(
+                    "visualization_parsing",
+                    e,
+                    "parse_error",
+                    {"query": query, "response": response.content}
+                )
+            return None
+    
     def analyze(self, query: str) -> Dict[str, Any]:
         """Process user query and return analysis results"""
         if self.df is None:
             return {"error": "No data has been loaded. Please upload a dataset first."}
-
+            
         try:
+            # Convert DataFrame to dictionary format
+            data_dict = self.df.to_dict('list')
+            
+            # Initialize run context
+            run_context = {}
+            
+            # Start monitoring if available
+            if self.monitoring:
+                run_context = self.monitoring.start_run(
+                    operation="analysis",
+                    dataset_name="user_data",
+                    tags={
+                        "query_type": "visualization" if "plot" in query.lower() else "analysis",
+                        "data_size": str(len(self.df))
+                    }
+                )
+            
+            # Check for visualization intent
+            viz_params = self._detect_visualization_intent(query)
+            if viz_params:
+                try:
+                    # Call EDATool with visualization parameters
+                    tool = EDATool()
+                    result = tool._run(
+                        data=data_dict,
+                        llm=self.llm,
+                        time_column=viz_params.get('time_column'),
+                        value_column=viz_params.get('value_column'),
+                        plot_type=viz_params.get('plot_type'),
+                        plot_columns=viz_params.get('plot_columns')
+                    )
+                    return {"success": True, "result": result}
+                except Exception as e:
+                    if self.monitoring:
+                        self.monitoring.log_error(
+                            run_id=run_context.get('run_id'),
+                            error=e,
+                            error_type="visualization_error",
+                            context={
+                                "query": query,
+                                "viz_params": viz_params
+                            }
+                        )
+                    raise
+            
+            # For non-visualization queries, use the agent executor
             result = self.agent_executor.invoke({
-                "input": query
+                "input": query,
+                "kwargs": {"data": data_dict}
             })
             
-            # Process the output
-            output = result["output"]
-            if isinstance(output, dict):
-                return {
-                    "success": True,
-                    "result": output["text_summary"],
-                    "data_types": output.get("data_types"),
-                    "missing_values": output.get("missing_values")
-                }
-            return {"success": True, "result": output}
+            return {"success": True, "result": result["output"]}
+            
         except Exception as e:
+            if self.monitoring:
+                self.monitoring.log_error(
+                    run_id=run_context.get('run_id'),
+                    error=e,
+                    error_type="analysis_error",
+                    context={"query": query}
+                )
             return {
                 "success": False,
                 "error": str(e),

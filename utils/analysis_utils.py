@@ -55,8 +55,22 @@ def infer_temporal_columns(df: pd.DataFrame, categorical_cols: List[str]) -> Tup
     
     return temporal_cols, remaining_categorical
 
+def sample_dataframe(df: pd.DataFrame, max_rows: int = 1000) -> pd.DataFrame:
+    """Sample a DataFrame while preserving distribution
+    
+    Args:
+        df: Input DataFrame
+        max_rows: Maximum number of rows to sample (default: 1000)
+    
+    Returns:
+        Sampled DataFrame
+    """
+    if len(df) > max_rows:
+        return df.sample(n=max_rows, random_state=42)
+    return df.copy()
+
 def detect_data_types(df: pd.DataFrame) -> Dict[str, List[str]]:
-    """Categorize columns by their data types with enhanced temporal detection"""
+    """Detect and categorize column data types"""
     numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
     categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     datetime_cols = df.select_dtypes(include=['datetime64']).columns.tolist()

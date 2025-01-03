@@ -1,6 +1,9 @@
 from langchain.tools import BaseTool
 from typing import Dict, List, Any, Optional
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pydantic import BaseModel, Field
 from utils.analysis_utils import (
     detect_data_types,
@@ -9,7 +12,8 @@ from utils.analysis_utils import (
     detect_outliers,
     get_correlation_matrix,
     infer_data_purpose_with_llm,
-    create_data_summary_dashboard
+    create_data_summary_dashboard,
+    sample_dataframe
 )
 from utils.cleaning_utils import (
     handle_missing_values,
@@ -103,112 +107,125 @@ class DataCleaningTool(BaseTool):
 
 class EDATool(BaseTool):
     name: str = "exploratory_data_analysis"
-    description: str = """Analyze data with statistics, correlations, and visualizations. Provides insights on patterns, distributions, and relationships."""
+    description: str = """Analyze and visualize data patterns. Use this tool when you need to:
+    - Create time series plots ('plot over time', 'trend', 'timeline')
+    - Show distributions ('histogram', 'distribution', 'plot')
+    - Analyze patterns ('chart', 'graph', 'visualization')
+    - Compare values ('compare', 'relationship')"""
     
     def _run(self, data: Dict[str, List[Any]], llm: Optional[Any] = None,
-             basic_stats: bool = True, correlation: bool = False, 
+             basic_stats: bool = False, correlation: bool = False, 
              plot_columns: Optional[List[str]] = None,
-             analyze_categorical: bool = False) -> Dict[str, Any]:
+             analyze_categorical: bool = False,
+             time_column: Optional[str] = None,
+             value_column: Optional[str] = None,
+             plot_type: Optional[str] = None,
+             debug_tokens: bool = False) -> Dict[str, Any]:
+        """Run analysis and create visualizations
+        
+        Args:
+            data: Input data dictionary
+            llm: Optional LLM for insights
+            basic_stats: Whether to include basic statistics
+            correlation: Whether to analyze correlations
+            plot_columns: Columns to plot
+            analyze_categorical: Whether to analyze categorical variables
+            time_column: Column to use for time series x-axis
+            value_column: Column to plot on y-axis
+            plot_type: Type of plot to create ('line', 'bar', 'histogram', etc.)
+            debug_tokens: Whether to track token usage
+        """
         df = pd.DataFrame(data)
+        df_sample = sample_dataframe(df)
         results = {}
         insights = []
-        
-        # Basic statistics
-        if basic_stats:
-            # Only include numeric columns for basic stats
-            numeric_df = df.select_dtypes(include=['int64', 'float64'])
-            if not numeric_df.empty:
-                stats_df = numeric_df.describe()
-                results['basic_stats'] = stats_df.to_dict()
+
+        # Handle time series plotting
+        if time_column and value_column:
+            try:
+                # Convert time column to datetime if needed
+                if df[time_column].dtype != 'datetime64[ns]':
+                    df[time_column] = pd.to_datetime(df[time_column])
+                
+                # Create time series plot
+                plot = px.line(df, x=time_column, y=value_column,
+                             title=f'{value_column} over {time_column}')
+                results['plots'] = {
+                    'time_series': {
+                        'plot': plot,
+                        'type': 'line',
+                        'x': time_column,
+                        'y': value_column
+                    }
+                }
                 
                 if llm:
-                    # Optimize the stats summary for token usage
-                    summary_stats = {
-                        col: {
-                            'mean': f"{stats_df.loc['mean', col]:.2f}",
-                            'std': f"{stats_df.loc['std', col]:.2f}",
-                            'min': f"{stats_df.loc['min', col]:.2f}",
-                            'max': f"{stats_df.loc['max', col]:.2f}"
-                        } for col in stats_df.columns
-                    }
+                    # Get insights about the time series
+                    stats = df.groupby(time_column)[value_column].agg(['mean', 'min', 'max']).describe()
+                    trend_prompt = f"""Analyze this time series of {value_column}:
+                    Average value: {stats['mean']['mean']:.2f}
+                    Range: {stats['min']['min']:.2f} to {stats['max']['max']:.2f}
+                    Key patterns or trends?"""
                     
-                    stats_prompt = f"""Analyze key statistics of numeric columns:
-                    {str(summary_stats)[:1000]}  # Limit the string length
-                    Focus on: notable patterns, unusual values, key insights.
-                    Be very concise."""
-                    
-                    stats_insights = llm.invoke(stats_prompt).content
-                    insights.append("📊 Statistical Insights:\n" + stats_insights)
-        
-        # Correlation analysis
-        if correlation:
-            numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
-            if len(numeric_cols) > 1:
-                corr_matrix = get_correlation_matrix(df[numeric_cols])
-                results['correlation'] = corr_matrix.to_dict()
+                    trend_insights = llm.invoke(trend_prompt).content
+                    insights.append(f"📈 Time Series Insights:\n{trend_insights}")
                 
-                if llm and not corr_matrix.empty:
-                    # Only analyze strong correlations
-                    significant_corrs = [
-                        f"{col1} vs {col2}: {corr_matrix.loc[col2, col1]:.2f}"
-                        for col1 in corr_matrix.columns
-                        for col2 in corr_matrix.index
-                        if col1 < col2 and abs(corr_matrix.loc[col2, col1]) > 0.7  # Increased threshold
-                    ][:5]  # Limit to top 5 correlations
-                    
-                    if significant_corrs:
-                        corr_prompt = f"""Analyze top correlations:
-                        {', '.join(significant_corrs)}
-                        Explain key relationships briefly."""
-                        
-                        corr_insights = llm.invoke(corr_prompt).content
-                        insights.append("🔗 Correlation Insights:\n" + corr_insights)
+            except Exception as e:
+                results['errors'] = f"Error creating time series plot: {str(e)}"
         
-        # Categorical variable analysis
-        if analyze_categorical:
-            categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-            if len(categorical_cols) > 0:
-                results['categorical_analysis'] = {}
-                # Limit to first 5 categorical columns to reduce token usage
-                for col in list(categorical_cols)[:5]:
-                    value_counts = df[col].value_counts().head(5)  # Only top 5 categories
-                    results['categorical_analysis'][col] = {
-                        'value_counts': value_counts.to_dict(),
-                        'unique_count': df[col].nunique(),
-                        'plot': generate_basic_plots(df, col)
+        # Handle regular plotting
+        elif plot_columns:
+            results['plots'] = {}
+            for column in plot_columns[:3]:  # Limit to 3 columns
+                if column not in df.columns:
+                    continue
+                    
+                try:
+                    if plot_type == 'histogram' or df[column].dtype in ['int64', 'float64']:
+                        plot = px.histogram(df, x=column, title=f'Distribution of {column}')
+                    elif plot_type == 'bar' or df[column].dtype in ['object', 'category']:
+                        value_counts = df[column].value_counts()
+                        plot = px.bar(x=value_counts.index, y=value_counts.values,
+                                    title=f'Distribution of {column}')
+                    else:
+                        plot = generate_basic_plots(df, column)
+                    
+                    results['plots'][column] = {
+                        'plot': plot,
+                        'type': plot_type or 'auto',
+                        'column': column
                     }
                     
                     if llm:
-                        cat_prompt = f"""Analyze distribution of '{col}':
-                        Top categories: {dict(value_counts)}
-                        Total unique: {df[col].nunique()}
-                        Key insights?"""
-                        
-                        cat_insights = llm.invoke(cat_prompt).content
-                        insights.append(f"📊 Category Insights ({col}):\n" + cat_insights)
-            else:
-                results['categorical_analysis'] = {"message": "No categorical variables found"}
+                        if df[column].dtype in ['int64', 'float64']:
+                            stats = df[column].describe()
+                            dist_prompt = f"""'{column}' distribution:
+                            Mean: {stats['mean']:.2f}, Std: {stats['std']:.2f}
+                            Range: {stats['min']:.2f} to {stats['max']:.2f}
+                            Key patterns?"""
+                            
+                            dist_insights = llm.invoke(dist_prompt).content
+                            insights.append(f"📊 {column}:\n{dist_insights}")
+                            
+                except Exception as e:
+                    results['errors'] = results.get('errors', {})
+                    results['errors'][column] = str(e)
         
-        # Generate plots for specified columns
-        if plot_columns:
-            results['plots'] = {}
-            # Limit to first 3 columns to reduce complexity
-            for column in plot_columns[:3]:
-                if column in df.columns:
-                    plot = generate_basic_plots(df, column)
-                    results['plots'][column] = plot
-                    
-                    if llm and df[column].dtype in ['int64', 'float64']:
-                        stats = df[column].describe()
-                        dist_prompt = f"""Analyze '{column}' distribution:
-                        Mean: {stats['mean']:.2f}, Std: {stats['std']:.2f}
-                        Range: {stats['min']:.2f} to {stats['max']:.2f}
-                        Key patterns?"""
-                        
-                        dist_insights = llm.invoke(dist_prompt).content
-                        insights.append(f"📈 Distribution ({column}):\n" + dist_insights)
+        # Include other analyses if requested
+        if basic_stats or correlation or analyze_categorical:
+            analysis_results = super()._run(
+                data=data,
+                llm=llm,
+                basic_stats=basic_stats,
+                correlation=correlation,
+                analyze_categorical=analyze_categorical,
+                debug_tokens=debug_tokens
+            )
+            results.update(analysis_results)
         
-        results['insights'] = "\n\n".join(insights) if insights else None
+        if insights:
+            results['insights'] = "\n\n".join(insights)
+        
         return results
     
     def _arun(self, data: Dict[str, List[Any]], **kwargs) -> Dict[str, Any]:

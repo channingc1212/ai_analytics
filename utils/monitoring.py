@@ -4,6 +4,7 @@ from langchain.callbacks.manager import CallbackManager
 from typing import Optional, Dict, Any
 import os
 from datetime import datetime
+import uuid
 
 class MonitoringConfig:
     """Configuration for LangSmith monitoring"""
@@ -31,16 +32,7 @@ class MonitoringConfig:
                        operation_type: str,
                        data_size: int,
                        additional_tags: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        """Create standardized tags for runs
-        
-        Args:
-            operation_type: Type of analysis being performed
-            data_size: Size of the dataset being analyzed
-            additional_tags: Additional custom tags to include
-        
-        Returns:
-            Dictionary of tags
-        """
+        """Create standardized tags for runs"""
         tags = {
             "operation": operation_type,
             "data_size": str(data_size),
@@ -54,65 +46,85 @@ class MonitoringConfig:
         return tags
     
     def log_feedback(self,
-                    run_id: str,
+                    run_id: Optional[str],
                     score: float,
                     feedback_type: str,
                     comment: Optional[str] = None) -> None:
-        """Log user feedback for a run
-        
-        Args:
-            run_id: ID of the run to log feedback for
-            score: Feedback score (0-1)
-            feedback_type: Type of feedback (e.g., "accuracy", "quality")
-            comment: Optional comment with the feedback
-        """
-        self.client.create_feedback(
-            run_id,
-            feedback_type,
-            score=score,
-            comment=comment
-        )
+        """Log user feedback for a run"""
+        if not run_id:
+            run_id = str(uuid.uuid4())
+            
+        try:
+            self.client.create_feedback(
+                run_id,
+                feedback_type,
+                score=score,
+                comment=comment
+            )
+        except Exception as e:
+            print(f"Error logging feedback: {str(e)}")
     
     def log_error(self,
-                 run_id: str,
-                 error: Exception,
-                 error_type: str,
+                 run_id: Optional[str] = None,
+                 error: Optional[Exception] = None,
+                 error_type: str = "unknown",
                  context: Optional[Dict[str, Any]] = None) -> None:
-        """Log error information
-        
-        Args:
-            run_id: ID of the run where error occurred
-            error: The exception that was raised
-            error_type: Category of the error
-            context: Additional context about the error
-        """
-        error_data = {
-            "error_type": error_type,
-            "error_message": str(error),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        if context:
-            error_data.update(context)
-        
-        self.client.update_run(
-            run_id,
-            error=error_data,
-            outputs={"error_details": error_data}
-        )
+        """Log error information"""
+        if not run_id:
+            run_id = str(uuid.uuid4())
+            
+        try:
+            error_data = {
+                "error_type": error_type,
+                "error_message": str(error) if error else "Unknown error",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            if context:
+                error_data.update(context)
+            
+            self.client.update_run(
+                run_id,
+                error=error_data,
+                outputs={"error_details": error_data}
+            )
+        except Exception as e:
+            print(f"Error logging error: {str(e)}")
     
     def create_run_name(self, operation: str, dataset_name: str) -> str:
-        """Create standardized run names
-        
-        Args:
-            operation: Type of operation being performed
-            dataset_name: Name of the dataset being analyzed
-        
-        Returns:
-            Formatted run name
-        """
+        """Create standardized run names"""
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         return f"{operation}_{dataset_name}_{timestamp}"
+    
+    def start_run(self, 
+                 operation: str, 
+                 dataset_name: str, 
+                 tags: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Start a new run with proper initialization
+        
+        Returns:
+            Dictionary containing run context including run_id
+        """
+        run_id = str(uuid.uuid4())
+        run_name = self.create_run_name(operation, dataset_name)
+        
+        context = {
+            "run_id": run_id,
+            "run_name": run_name,
+            "tags": tags or {}
+        }
+        
+        try:
+            self.client.create_run(
+                project_name=self.project_name,
+                run_id=run_id,
+                name=run_name,
+                tags=tags or {}
+            )
+        except Exception as e:
+            print(f"Error creating run: {str(e)}")
+        
+        return context
 
 # Example usage in your agent:
 """
