@@ -18,6 +18,9 @@ The project aims to provide automated data analysis and insights generation thro
 ├── utils/          # Utility functions and helpers
 ├── app.py         # Main Streamlit application
 └── requirements.txt # Project dependencies
+- Please do not over-complicate the code and structure, keep it simple and easy to understand.
+- Please do not impact existing features or functionality when adding new code.
+
 
 # Monitoring and Observability
 - Use LangSmith for tracing and monitoring LLM interactions
@@ -41,7 +44,7 @@ The project aims to provide automated data analysis and insights generation thro
   * Error categories
 
 # Token Usage Guidelines
-- Limit data samples to 1000 rows for analysis
+- Limit data samples to 1000 rows for analysis, please do not sample data for analysis to avoid misleading results
 - Use concise prompts for LLM interactions
 - Optimize data structures for token efficiency
 - Monitor and log token usage in debug mode
