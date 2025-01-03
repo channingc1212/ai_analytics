@@ -12,7 +12,7 @@ import altair as alt
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# Load environment variables
+# Load environment variables, e.g. OPENAI_API_KEY and langsmith configuration
 load_dotenv()
 
 # Configure plotly to use a static renderer
@@ -38,6 +38,7 @@ if "current_df" not in st.session_state:
 # App title
 st.title("AI Data Analyst")
 
+# Create visualization using multiple backends for reliability, defaulting to Plotly and histogram
 def create_visualization(df: pd.DataFrame, column: str, plot_type: str = "histogram"):
     """Create visualization using multiple backends for reliability"""
     try:
