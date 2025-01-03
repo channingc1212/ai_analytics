@@ -146,8 +146,13 @@ class DataAnalystAgent:
 
     def analyze(self, query: str) -> Dict[str, Any]:
         """Process user query and return analysis results"""
-        if self.df is None:
-            return {"error": "No data has been loaded. Please upload a dataset first."}
+        # First, check if data exists
+        if self.df is None or self.df.empty:
+            return {
+                "success": False,
+                "error": "No data is currently loaded. Please upload a dataset first.",
+                "suggestion": "Try uploading your data file again."
+            }
 
         try:
             # Convert DataFrame to dictionary format
@@ -162,19 +167,74 @@ class DataAnalystAgent:
                     operation="analysis",
                     dataset_name="user_data",
                     tags={
-                        "query_type": "visualization" if "plot" in query.lower() else "analysis",
+                        "query_type": "visualization" if any(term in query.lower() for term in ["plot", "chart", "graph", "distribution", "correlation"]) else "analysis",
                         "data_size": str(len(self.df))
                     }
                 )
             
-            # Prepare the inputs properly for the agent
+            # Handle visualization requests directly
+            if "plot" in query.lower() or "correlation" in query.lower() or "heatmap" in query.lower():
+                tool = EDATool()
+                if "correlation" in query.lower() or "heatmap" in query.lower():
+                    result = tool._run(data=data_dict, llm=self.llm, correlation=True, query=query)
+                    return {
+                        "success": True,
+                        "result": "Here's the correlation heatmap for the numerical variables:",
+                        "plots": result.get("plots", {}),
+                        "insights": result.get("insights")
+                    }
+                else:
+                    # Handle other plot types
+                    tool = VisualizationTool()
+                    result = tool._run(data=data_dict, query=query)
+                    return {
+                        "success": True,
+                        "result": "Here's the requested visualization:",
+                        "plots": result.get("plots", {})
+                    }
+            
+            # Handle suggested actions directly
+            if query == "Show data distribution":
+                tool = EDATool()
+                result = tool._run(data=data_dict, llm=self.llm, show_distribution=True, query=query)
+                return {
+                    "success": True,
+                    "result": "Here are the distributions of your data variables:",
+                    "plots": result.get("plots", {})
+                }
+            
+            elif query == "Show basic statistics":
+                tool = EDATool()
+                result = tool._run(data=data_dict, llm=self.llm, basic_stats=True, query=query)
+                return {
+                    "success": True,
+                    "result": result.get("insights", "Here are the basic statistics of your data.")
+                }
+            
+            elif query == "Find correlations":
+                tool = EDATool()
+                result = tool._run(data=data_dict, llm=self.llm, correlation=True, query=query)
+                return {
+                    "success": True, 
+                    "result": result.get("insights", "Here are the correlations in your data:"),
+                    "plots": result.get("plots", {})
+                }
+            
+            elif query == "Generate data summary":
+                tool = DataInfoTool()
+                result = tool._run(data=data_dict, llm=self.llm)
+                return {
+                    "success": True,
+                    "result": result.get("text_summary", "Here's a summary of your data.")
+                }
+            
+            # For other queries, use the agent executor
             agent_inputs = {
-                "input": query,  # The main input key for the agent
-                "data": data_dict  # Additional data passed as a tool input
+                "input": query,
+                "kwargs": {"data": data_dict}
             }
             
             result = self.agent_executor.invoke(agent_inputs)
-            
             return {"success": True, "result": result["output"]}
 
         except Exception as e:
@@ -193,18 +253,23 @@ class DataAnalystAgent:
 
     def set_data(self, df: pd.DataFrame):
         """Set the dataframe for analysis"""
+        if df is None or df.empty:
+            raise ValueError("Cannot set empty or None DataFrame")
+            
         self.df = df
+        # Reinitialize tools with new data
+        self.tools = self._setup_tools()
+        self.agent_executor = self._setup_agent()
+        print(f"Data loaded successfully: {len(df)} rows, {len(df.columns)} columns")
 
     def get_suggested_actions(self) -> List[str]:
         """Get suggested actions based on the current state of the data"""
         suggestions = []
         if self.df is not None:
-            if self.df.isnull().any().any():
-                suggestions.append("Clean missing values")
-            if len(self.df.select_dtypes(include=['number']).columns) > 0:
-                suggestions.append("Analyze numerical distributions")
-            if len(self.df.select_dtypes(include=['object']).columns) > 0:
-                suggestions.append("Analyze categorical variables")
-            suggestions.append("Show basic data statistics")
-            suggestions.append("Generate data summary")
+            suggestions.extend([
+                "Show data distribution",  # This will trigger visualization
+                "Find correlations",       # This will show detailed correlation values
+                "Show basic statistics",   # This gives a quick overview
+                "Generate data summary"    # This provides comprehensive insights
+            ])
         return suggestions 

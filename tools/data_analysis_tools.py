@@ -166,7 +166,7 @@ class EDATool(BaseTool):
     name: str = "exploratory_data_analysis"
     description: str = """Analyze data patterns and create visualizations. Use this tool for:
     - Basic statistics and summaries
-    - Correlation analysis
+    - Correlation analysis with specific values
     - Pattern detection
     - Multiple visualizations
     - Comprehensive data insights"""
@@ -196,92 +196,107 @@ class EDATool(BaseTool):
                 stats_insights = kwargs['llm'].invoke(stats_prompt).content
                 insights.append("📊 Statistical Insights:\n" + stats_insights)
         
-        # Correlation analysis
-        if kwargs.get('correlation', False):
+        # Distribution Analysis
+        if kwargs.get('show_distribution', False) or 'show data distribution' in kwargs.get('query', '').lower():
+            results['plots'] = results.get('plots', {})
+            
+            # Handle numeric distributions
+            numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
+            for col in numeric_cols:
+                try:
+                    fig = px.histogram(df, x=col,
+                                     title=f'Distribution of {col}',
+                                     marginal='box',  # Add box plot on the margin
+                                     template='plotly_white')  # Use a clean template
+                    fig.update_layout(
+                        showlegend=True,
+                        xaxis_title=col,
+                        yaxis_title="Count",
+                        height=400  # Set a fixed height
+                    )
+                    results['plots'][f'{col}_distribution'] = fig
+                    
+                    if 'llm' in kwargs:
+                        stats = df[col].describe()
+                        dist_insights = kwargs['llm'].invoke(
+                            f"Analyze the distribution of {col}:\n" +
+                            f"Mean: {stats['mean']:.2f}\n" +
+                            f"Median: {stats['50%']:.2f}\n" +
+                            f"Std Dev: {stats['std']:.2f}\n" +
+                            f"Range: {stats['min']:.2f} to {stats['max']:.2f}"
+                        ).content
+                        insights.append(f"📈 Distribution of {col}:\n{dist_insights}")
+                except Exception as e:
+                    print(f"Error plotting distribution for {col}: {str(e)}")
+            
+            # Handle categorical distributions
+            cat_cols = df.select_dtypes(include=['object', 'category']).columns
+            for col in cat_cols:
+                try:
+                    value_counts = df[col].value_counts()
+                    fig = px.bar(x=value_counts.index[:10], 
+                               y=value_counts.values[:10],
+                               title=f'Top 10 Categories in {col}',
+                               template='plotly_white')
+                    fig.update_layout(
+                        showlegend=True,
+                        xaxis_title=col,
+                        yaxis_title="Count",
+                        xaxis_tickangle=45,
+                        height=400  # Set a fixed height
+                    )
+                    results['plots'][f'{col}_distribution'] = fig
+                except Exception as e:
+                    print(f"Error plotting distribution for {col}: {str(e)}")
+        
+        # Correlation analysis with detailed values
+        if kwargs.get('correlation', False) or 'find correlations' in kwargs.get('query', '').lower():
             numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
             if len(numeric_cols) > 1:
                 corr_matrix = get_correlation_matrix(df[numeric_cols])
                 results['correlation'] = corr_matrix.to_dict()
                 
                 # Create correlation heatmap
-                fig = px.imshow(corr_matrix,
-                              title='Correlation Heatmap',
-                              labels=dict(color='Correlation'))
-                results['plots'] = results.get('plots', {})
-                results['plots']['correlation_heatmap'] = fig
+                try:
+                    fig = px.imshow(corr_matrix,
+                                  title='Correlation Heatmap',
+                                  labels=dict(color='Correlation'),
+                                  template='plotly_white',
+                                  text=corr_matrix.round(3),  # Show correlation values with 3 decimals
+                                  aspect='auto',  # Adjust aspect ratio
+                                  height=600)  # Set a fixed height
+                    fig.update_traces(texttemplate='%{text}')  # Ensure values are visible
+                    results['plots'] = results.get('plots', {})
+                    results['plots']['correlation_heatmap'] = fig
+                except Exception as e:
+                    print(f"Error creating correlation heatmap: {str(e)}")
                 
-                if 'llm' in kwargs and not corr_matrix.empty:
+                if 'llm' in kwargs:
+                    # Collect significant correlations with exact values
                     significant_corrs = []
                     for col1 in corr_matrix.columns:
                         for col2 in corr_matrix.index:
-                            if col1 < col2:
+                            if col1 < col2:  # Avoid duplicates
                                 corr = corr_matrix.loc[col2, col1]
-                                if abs(corr) > 0.5:
-                                    significant_corrs.append(f"{col1} vs {col2}: {corr:.2f}")
+                                if abs(corr) > 0.3:  # Include moderate to strong correlations
+                                    strength = "strong" if abs(corr) > 0.7 else "moderate"
+                                    significant_corrs.append(
+                                        f"{col1} vs {col2}: {corr:.3f} ({strength} {'positive' if corr > 0 else 'negative'} correlation)"
+                                    )
                     
                     if significant_corrs:
-                        corr_prompt = f"""Analyze these significant correlations:
+                        corr_prompt = f"""Analyze these correlations with their specific values:
                         {', '.join(significant_corrs)}
                         
-                        Explain:
-                        1. What these correlations mean
-                        2. Which relationships are most interesting
-                        3. Potential business implications"""
+                        For each correlation:
+                        1. Explain the exact relationship strength (using the actual correlation value)
+                        2. Interpret what this means for the business
+                        3. Suggest potential actions based on these specific values
+                        
+                        Be precise and always reference the actual correlation values."""
                         
                         corr_insights = kwargs['llm'].invoke(corr_prompt).content
-                        insights.append("🔗 Correlation Insights:\n" + corr_insights)
-        
-        # Categorical analysis with visualizations
-        if kwargs.get('analyze_categorical', False):
-            categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-            if len(categorical_cols) > 0:
-                results['categorical_analysis'] = {}
-                results['plots'] = results.get('plots', {})
-                
-                for col in categorical_cols:
-                    value_counts = df[col].value_counts()
-                    fig = px.bar(x=value_counts.index[:10], y=value_counts.values[:10],
-                               title=f'Top 10 Categories in {col}')
-                    
-                    results['categorical_analysis'][col] = {
-                        'value_counts': value_counts.to_dict(),
-                        'unique_count': len(value_counts)
-                    }
-                    results['plots'][f'{col}_distribution'] = fig
-                    
-                    if 'llm' in kwargs:
-                        cat_prompt = f"""Analyze the distribution of {col}:
-                        Top categories: {', '.join(value_counts.index[:5])}
-                        Total unique categories: {len(value_counts)}
-                        
-                        Explain:
-                        1. Distribution patterns
-                        2. Dominant categories
-                        3. Business implications"""
-                        
-                        cat_insights = kwargs['llm'].invoke(cat_prompt).content
-                        insights.append(f"📊 Category Insights ({col}):\n" + cat_insights)
-        
-        # Numeric distributions with visualizations
-        numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns
-        if len(numeric_cols) > 0:
-            results['plots'] = results.get('plots', {})
-            for col in numeric_cols:
-                fig = px.histogram(df, x=col,
-                                 title=f'Distribution of {col}',
-                                 marginal='box')  # Add box plot on the margin
-                results['plots'][f'{col}_distribution'] = fig
-        
-        # Time series detection and visualization
-        datetime_cols = df.select_dtypes(include=['datetime64']).columns
-        if len(datetime_cols) > 0:
-            results['plots'] = results.get('plots', {})
-            for time_col in datetime_cols:
-                # Find a numeric column to plot against time
-                for value_col in numeric_cols:
-                    fig = px.line(df, x=time_col, y=value_col,
-                                title=f'{value_col} over {time_col}')
-                    results['plots'][f'{value_col}_timeseries'] = fig
+                        insights.append("🔗 Correlation Analysis:\n" + corr_insights)
         
         results['insights'] = "\n\n".join(insights) if insights else None
         return results
