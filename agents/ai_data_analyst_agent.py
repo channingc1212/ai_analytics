@@ -117,15 +117,15 @@ class DataAnalystAgent:
             If you're unsure about an operation or user intention, ask for clarification."""
         )
         
-        # Create a prompt template
+        # Create a prompt template, including system message, chat history, input, and agent scratchpad
         prompt = ChatPromptTemplate.from_messages([
             system_message,
             MessagesPlaceholder(variable_name="chat_history"),
             HumanMessagePromptTemplate.from_template("{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"), # reasoning process
         ])
 
-        # Create an agent using the OpenAI functions agent
+        # Create an agent using the OpenAI functions agent, including llm, prompt, and tools
         agent = create_openai_functions_agent(
             llm=self.llm,
             prompt=prompt,
