@@ -50,18 +50,26 @@ class MonitoringConfig:
     def log_feedback(self,
                     run_id: Optional[str],
                     score: float,
-                    feedback_type: str,
+                    feedback_type: str = "user_feedback",
                     comment: Optional[str] = None) -> None:
-        """Log user feedback for a run"""
+        """Log user feedback for a specific run
+        
+        Args:
+            run_id: The ID of the run to attach feedback to
+            score: Feedback score (1.0 for positive, 0.0 for negative)
+            feedback_type: Type of feedback (default: user_feedback)
+            comment: Optional comment explaining the feedback
+        """
         if not run_id:
             run_id = str(uuid.uuid4())
             
         try:
             self.client.create_feedback(
-                run_id,
-                feedback_type,
+                run_id=run_id,
+                key=feedback_type,
                 score=score,
-                comment=comment
+                comment=comment,
+                value={"score": score, "timestamp": datetime.now().isoformat()}
             )
         except Exception as e:
             print(f"Error logging feedback: {str(e)}")
@@ -71,24 +79,23 @@ class MonitoringConfig:
                  error: Optional[Exception] = None,
                  error_type: str = "unknown",
                  context: Optional[Dict[str, Any]] = None) -> None:
-        """Log error information"""
+        """Log error information for a specific run"""
         if not run_id:
             run_id = str(uuid.uuid4())
             
+        error_data = {
+            "error_type": error_type,
+            "error_message": str(error) if error else "Unknown error",
+            "timestamp": datetime.now().isoformat()
+        }
+        if context:
+            error_data.update(context)
+            
         try:
-            error_data = {
-                "error_type": error_type,
-                "error_message": str(error) if error else "Unknown error",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-            if context:
-                error_data.update(context)
-            
             self.client.update_run(
-                run_id,
+                run_id=run_id,
                 error=error_data,
-                outputs={"error_details": error_data}
+                end_time=datetime.now()
             )
         except Exception as e:
             print(f"Error logging error: {str(e)}")
@@ -98,35 +105,30 @@ class MonitoringConfig:
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         return f"{operation}_{dataset_name}_{timestamp}"
     
-    def start_run(self, 
-                 operation: str, 
-                 dataset_name: str, 
-                 tags: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-        """Start a new run with proper initialization
-        
-        Returns:
-            Dictionary containing run context including run_id
-        """
+    def start_run(self, operation: str, dataset_name: str = None, tags: Dict[str, str] = None) -> Dict[str, Any]:
+        """Start a new run and return run context"""
         run_id = str(uuid.uuid4())
-        run_name = self.create_run_name(operation, dataset_name)
         
-        context = {
-            "run_id": run_id,
-            "run_name": run_name,
-            "tags": tags or {}
+        # Create run metadata
+        metadata = {
+            "operation": operation,
+            "timestamp": datetime.now().isoformat(),
+            "dataset": dataset_name
         }
-        
+        if tags:
+            metadata.update(tags)
+            
         try:
             self.client.create_run(
                 project_name=self.project_name,
                 run_id=run_id,
-                name=run_name,
-                tags=tags or {}
+                name=f"{operation}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                extra=metadata
             )
         except Exception as e:
             print(f"Error creating run: {str(e)}")
-        
-        return context
+            
+        return {"run_id": run_id}
 
 # Example usage in your agent:
 """

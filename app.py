@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import altair as alt
 import seaborn as sns
 import matplotlib.pyplot as plt
+from typing import Dict, Any
 
 # Load environment variables, e.g. OPENAI_API_KEY and langsmith configuration
 load_dotenv()
@@ -24,6 +25,8 @@ st.set_page_config(layout="wide", page_title="AI Data Analyst")
 # Initialize session state variables
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "feedback_states" not in st.session_state:
+    st.session_state.feedback_states = {}  # Store feedback states for each message
 if "agent" not in st.session_state:
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if openai_api_key:
@@ -39,74 +42,102 @@ if "current_df" not in st.session_state:
 st.title("AI Data Analyst")
 
 # Create visualization using multiple backends for reliability, defaulting to Plotly and histogram
-def create_visualization(df: pd.DataFrame, column: str, plot_type: str = "histogram"):
+def create_visualization(df: pd.DataFrame, column: str = None, plot_type: str = "histogram"):
     """Create visualization using multiple backends for reliability"""
     try:
-        if plot_type == "histogram":
-            # Try Plotly first
-            try:
-                fig = px.histogram(df, x=column, title=f'Distribution of {column}',
-                                 template='plotly_white')
-                fig.update_layout(showlegend=True, height=400)
-                return {"plot": fig, "backend": "plotly"}
-            except Exception as e:
-                st.warning(f"Plotly visualization failed, trying Altair: {str(e)}")
-                
-            # Try Altair if Plotly fails
-            try:
-                chart = alt.Chart(df).mark_bar().encode(
-                    alt.X(f'{column}:Q', bin=True),
-                    y='count()',
-                ).properties(title=f'Distribution of {column}')
-                return {"plot": chart, "backend": "altair"}
-            except Exception as e:
-                st.warning(f"Altair visualization failed, trying Seaborn: {str(e)}")
-                
-            # Try Seaborn as last resort
-            try:
-                fig, ax = plt.subplots()
-                sns.histplot(data=df, x=column, ax=ax)
-                ax.set_title(f'Distribution of {column}')
-                return {"plot": fig, "backend": "seaborn"}
-            except Exception as e:
-                st.error(f"All visualization attempts failed: {str(e)}")
-                return None
-                
-        elif plot_type == "correlation":
+        if plot_type == "correlation":
             # Create correlation matrix
             corr_matrix = df.select_dtypes(include=['float64', 'int64']).corr()
             
-            # Try Plotly first
-            try:
-                fig = go.Figure(data=go.Heatmap(
-                    z=corr_matrix,
+            # Create correlation heatmap with Plotly
+            fig = go.Figure()
+            fig.add_trace(
+                go.Heatmap(
+                    z=corr_matrix.values,
                     x=corr_matrix.columns,
                     y=corr_matrix.columns,
-                    text=corr_matrix.round(3),
+                    text=corr_matrix.values.round(3),
                     texttemplate='%{text}',
                     textfont={"size": 10},
-                    hoverongaps=False,
                     colorscale='RdBu',
                     zmid=0
-                ))
-                fig.update_layout(
-                    title='Correlation Heatmap',
-                    height=600,
-                    width=800
                 )
-                return {"plot": fig, "backend": "plotly"}
-            except Exception as e:
-                st.warning(f"Plotly correlation failed, trying Seaborn: {str(e)}")
-                
-            # Try Seaborn if Plotly fails
-            try:
-                fig, ax = plt.subplots(figsize=(10, 8))
-                sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', ax=ax, fmt='.3f')
-                ax.set_title('Correlation Heatmap')
-                return {"plot": fig, "backend": "seaborn"}
-            except Exception as e:
-                st.error(f"All correlation visualization attempts failed: {str(e)}")
+            )
+            fig.update_layout(
+                title='Correlation Heatmap',
+                height=600,
+                width=800
+            )
+            return fig
+            
+        elif plot_type == "histogram" and column is not None:
+            # Check if column exists
+            if column not in df.columns:
+                st.error(f"Column '{column}' not found in the dataset")
                 return None
+            
+            # Create histogram with Plotly
+            fig = px.histogram(
+                df, 
+                x=column,
+                title=f'Distribution of {column}',
+                template='plotly_white',
+                marginal='box'  # Add a box plot on the margin
+            )
+            
+            fig.update_layout(
+                showlegend=False,
+                height=500,
+                xaxis_title=column,
+                yaxis_title="Count",
+                bargap=0.1
+            )
+            
+            # Add mean line
+            mean_value = df[column].mean()
+            fig.add_vline(
+                x=mean_value,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Mean: {mean_value:.2f}",
+                annotation_position="top"
+            )
+            
+            return fig
+            
+        elif plot_type == "box" and column is not None:
+            # Create box plot with Plotly
+            fig = px.box(
+                df,
+                y=column,
+                title=f'Box Plot of {column}',
+                template='plotly_white'
+            )
+            fig.update_layout(
+                height=400,
+                showlegend=False
+            )
+            return fig
+            
+        elif plot_type == "scatter" and column is not None:
+            # Create scatter plot with Plotly
+            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+            if len(numeric_cols) >= 2:
+                fig = px.scatter(
+                    df,
+                    x=numeric_cols[0],
+                    y=numeric_cols[1],
+                    title=f'Scatter Plot: {numeric_cols[0]} vs {numeric_cols[1]}',
+                    template='plotly_white'
+                )
+                fig.update_layout(
+                    height=500,
+                    showlegend=False
+                )
+                return fig
+            
+        return None
+        
     except Exception as e:
         st.error(f"Error creating visualization: {str(e)}")
         return None
@@ -123,105 +154,164 @@ def display_visualization(viz_data):
     elif viz_data["backend"] == "seaborn":
         st.pyplot(viz_data["plot"])
 
+def handle_feedback(message_idx: int, score: float, feedback_type: str = "user_feedback"):
+    """Handle user feedback for a specific message"""
+    if st.session_state.agent and st.session_state.agent.monitoring:
+        message = st.session_state.messages[message_idx]
+        run_id = message.get("run_id")  # We'll add this when storing messages
+        if run_id:
+            st.session_state.agent.monitoring.log_feedback(
+                run_id=run_id,
+                score=score,
+                feedback_type=feedback_type,
+                comment=f"User rated response with score: {score}"
+            )
+            # Update feedback state
+            st.session_state.feedback_states[message_idx] = score
+            st.success("Thank you for your feedback!")
+            # Force a rerun to update the UI
+            st.rerun()
+
+def find_closest_column(query: str, columns: list) -> str:
+    """Find the closest matching column name from the query
+    Uses fuzzy matching to handle minor differences in naming"""
+    # Normalize query and column names
+    query = query.lower().strip()
+    normalized_cols = {col.lower().strip(): col for col in columns}
+    
+    # Direct match after normalization
+    for norm_col in normalized_cols:
+        if norm_col in query:
+            return normalized_cols[norm_col]
+    
+    # Handle common variations
+    for norm_col in normalized_cols:
+        # Handle plural/singular
+        if norm_col.rstrip('s') in query or (norm_col + 's') in query:
+            return normalized_cols[norm_col]
+        # Handle spaces/underscores
+        if norm_col.replace(' ', '_') in query or norm_col.replace('_', ' ') in query:
+            return normalized_cols[norm_col]
+        
+    return None
+
+def create_all_distributions(df: pd.DataFrame) -> Dict[str, Any]:
+    """Create distribution plots for all numerical columns"""
+    numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+    figs = []
+    
+    for col in numeric_cols:
+        fig = create_visualization(df, column=col, plot_type="histogram")
+        if fig is not None:
+            figs.append((col, fig))
+    
+    return figs
+
 def process_query(query: str):
     """Process user query and display results"""
     if not query:
         return
     
-    # Add user message to chat history and display it
+    # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": query})
-    with st.chat_message("user"):
-        st.write(query)
     
     # Get AI response
-    with st.chat_message("assistant"):
-        with st.spinner("Analyzing your data..."):
-            # Handle general visualization capability inquiries
-            if any(term in query.lower() for term in ["what charts", "what plots", "what visualizations", "visualization capabilities", "plotting capabilities"]):
-                capability_msg = """I can create various types of visualizations, including:
-
-1. Time Series Plots: For visualizing trends over time (e.g., sales over time)
-2. Histograms: To show the distribution of a single variable
-3. Bar Charts: For comparing categorical data
-4. Scatter Plots: To analyze relationships between two numerical variables
-5. Correlation Heatmaps: To visualize correlations between multiple numerical variables
-6. Box Plots: To show the distribution of a variable and identify outliers
-7. Pie Charts: For showing proportions of categories
-
-To create a visualization, you can:
-- Ask for a specific plot type (e.g., "Show me a histogram of age")
-- Request a correlation analysis (e.g., "Show correlation heatmap")
-- Ask for distribution analysis (e.g., "Plot the distribution of salary")
-
-What type of visualization would you like to see?"""
-                st.session_state.messages.append({"role": "assistant", "content": capability_msg})
-                st.write(capability_msg)
-                return
-            
-            # Handle visualization requests
-            if any(term in query.lower() for term in ["plot", "show", "visualize", "distribution", "correlation"]):
-                df = st.session_state.current_df
-                if df is not None:
-                    if "correlation" in query.lower() or "heatmap" in query.lower():
-                        viz_data = create_visualization(df, None, plot_type="correlation")
-                        if viz_data:
-                            # Add success message to chat history
-                            success_msg = "Here's the correlation heatmap for the numerical variables:"
-                            st.session_state.messages.append({"role": "assistant", "content": success_msg})
-                            st.write(success_msg)
-                            display_visualization(viz_data)
-                            return
-                    else:
-                        # Try to identify the column to plot
-                        cols = df.columns.tolist()
-                        for col in cols:
-                            if col.lower() in query.lower():
-                                viz_data = create_visualization(df, col)
-                                if viz_data:
-                                    # Add success message to chat history
-                                    success_msg = f"Here's the distribution plot for {col}:"
-                                    st.session_state.messages.append({"role": "assistant", "content": success_msg})
-                                    st.write(success_msg)
-                                    display_visualization(viz_data)
-                                    return
-                        
-                        # If no specific column found
-                        st.warning("Could not identify which column to plot. Please specify the column name.")
+    with st.spinner("Analyzing your data..."):
+        # Start a new run for monitoring
+        run_id = None
+        if st.session_state.agent and st.session_state.agent.monitoring:
+            run_context = st.session_state.agent.monitoring.start_run(
+                operation="chat_response",
+                dataset_name="user_data",
+                tags={"query_type": "user_query"}
+            )
+            run_id = run_context.get('run_id')
+        
+        # Handle visualization requests directly
+        if any(term in query.lower() for term in ["plot", "show", "visualize", "distribution", "histogram", "correlation", "heatmap"]):
+            df = st.session_state.current_df
+            if df is not None:
+                # Handle correlation heatmap
+                if "correlation" in query.lower() or "heatmap" in query.lower():
+                    fig = create_visualization(df, plot_type="correlation")
+                    if fig is not None:
                         st.session_state.messages.append({
-                            "role": "assistant", 
-                            "content": "I couldn't identify which column to plot. Could you please specify the column name you'd like to visualize?"
+                            "role": "assistant",
+                            "content": "Here's the correlation heatmap for the numerical variables:",
+                            "run_id": run_id,
+                            "has_plot": True,
+                            "plot": fig
                         })
+                        st.rerun()
                         return
-            
-            # For non-visualization queries or if visualization handling failed
-            response = st.session_state.agent.analyze(query)
-            
-            # Handle successful response
-            if response.get("success", False):
-                # Add AI response to chat history
-                st.session_state.messages.append({"role": "assistant", "content": response["result"]})
                 
-                # Display the response text
-                st.write(response["result"])
+                # Handle "show data distribution" or similar general distribution requests
+                if query.lower() in ["show data distribution", "show distributions", "plot distributions"]:
+                    figs = create_all_distributions(df)
+                    if figs:
+                        # Add a message for each distribution plot
+                        for col, fig in figs:
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"Distribution of {col}:",
+                                "run_id": run_id,
+                                "has_plot": True,
+                                "plot": fig
+                            })
+                        st.rerun()
+                        return
                 
-                # Display plots if any from the agent
-                if "plots" in response and response["plots"]:
-                    for plot_name, fig in response["plots"].items():
-                        try:
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e:
-                            # Try alternative visualization
-                            if st.session_state.current_df is not None:
-                                viz_data = create_visualization(st.session_state.current_df, plot_name.replace("_distribution", ""))
-                                if viz_data:
-                                    display_visualization(viz_data)
-            else:
-                error_msg = response.get("error", "An error occurred")
-                suggestion = response.get("suggestion", "")
-                full_msg = f"{error_msg} {suggestion}"
-                st.error(full_msg)
-                # Add error message to chat history
-                st.session_state.messages.append({"role": "assistant", "content": f"Error: {full_msg}"})
+                # Handle specific column visualization
+                else:
+                    # Try to identify the column using fuzzy matching
+                    cols = df.columns.tolist()
+                    matched_col = find_closest_column(query, cols)
+                    
+                    if matched_col:
+                        fig = create_visualization(df, column=matched_col, plot_type="histogram")
+                        if fig is not None:
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"Here's the distribution of {matched_col}:",
+                                "run_id": run_id,
+                                "has_plot": True,
+                                "plot": fig
+                            })
+                            st.rerun()
+                            return
+                    
+                    # If no specific column found
+                    numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": f"I couldn't identify which column to plot. Available numerical columns are: {', '.join(numeric_cols)}. You can also say 'show data distribution' to see all distributions.",
+                        "run_id": run_id,
+                        "has_plot": False
+                    })
+                    st.rerun()
+                    return
+        
+        # For other queries, use the agent
+        response = st.session_state.agent.analyze(query)
+        
+        # Add AI response to chat history with run_id and plots
+        message = {
+            "role": "assistant",
+            "content": response.get("result", ""),
+            "run_id": run_id,
+            "has_plot": False
+        }
+        
+        # If response contains a plot, add it to the message
+        if response.get("plot") is not None:
+            message["has_plot"] = True
+            message["plot"] = response["plot"]
+        elif response.get("plots") is not None:
+            message["has_plot"] = True
+            message["plot"] = next(iter(response["plots"].values()))  # Get the first plot
+            
+        st.session_state.messages.append(message)
+        st.rerun()
 
 # Sidebar for file upload and data info
 with st.sidebar:
@@ -266,12 +356,45 @@ with st.sidebar:
 
 # Main chat interface
 if st.session_state.data_loaded:
-    # Display chat history
-    for message in st.session_state.messages:
+    # Display chat history with feedback buttons
+    for idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
+            # Display the message content
             st.write(message["content"])
+            
+            # Display plot if any
+            if message.get("has_plot") and message.get("plot") is not None:
+                try:
+                    st.plotly_chart(message["plot"], use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error displaying plot: {str(e)}")
+            
+            # Only show feedback buttons for assistant messages
+            if message["role"] == "assistant":
+                col1, col2 = st.columns([1, 20])  # Adjust column widths as needed
+                
+                # Check if feedback was already given
+                feedback_given = idx in st.session_state.feedback_states
+                
+                with col1:
+                    # Thumbs up button
+                    if st.button("👍", key=f"thumbs_up_{idx}", 
+                               disabled=feedback_given,
+                               help="This response was helpful"):
+                        handle_feedback(idx, 1.0)
+                    
+                    # Thumbs down button
+                    if st.button("👎", key=f"thumbs_down_{idx}",
+                               disabled=feedback_given,
+                               help="This response was not helpful"):
+                        handle_feedback(idx, 0.0)
+                
+                # Show feedback status if given
+                if feedback_given:
+                    score = st.session_state.feedback_states[idx]
+                    st.caption(f"{'Thanks for your feedback! 👍' if score == 1.0 else 'Thanks for your feedback! 👎'}")
     
-    # Chat input
+    # Add chat input box
     if prompt := st.chat_input("Ask me about your data..."):
         process_query(prompt)
 else:
