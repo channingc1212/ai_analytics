@@ -147,12 +147,23 @@ def display_visualization(viz_data):
     if viz_data is None:
         return
         
-    if viz_data["backend"] == "plotly":
-        st.plotly_chart(viz_data["plot"], use_container_width=True)
-    elif viz_data["backend"] == "altair":
-        st.altair_chart(viz_data["plot"], use_container_width=True)
-    elif viz_data["backend"] == "seaborn":
-        st.pyplot(viz_data["plot"])
+    # Handle plots dictionary from VisualizationTool
+    if 'plots' in viz_data:
+        for plot_name, plot in viz_data['plots'].items():
+            if isinstance(plot, (go.Figure, px.Figure)):
+                st.plotly_chart(plot, use_container_width=True)
+            elif isinstance(plot, alt.Chart):
+                st.altair_chart(plot, use_container_width=True)
+            else:
+                st.pyplot(plot)
+    
+    # Display any errors if present
+    if 'errors' in viz_data:
+        if isinstance(viz_data['errors'], dict):
+            for col, error in viz_data['errors'].items():
+                st.error(f"Error with {col}: {error}")
+        else:
+            st.error(viz_data['errors'])
 
 def handle_feedback(message_idx: int, score: float, feedback_type: str = "user_feedback"):
     """Handle user feedback for a specific message"""
